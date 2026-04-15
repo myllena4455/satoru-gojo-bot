@@ -211,7 +211,6 @@ const BOT_OWNER_NUMBER = (process.env.BOT_OWNER_NUMBER || '5581986010094').repla
 const BOT_OWNER_LID = (process.env.BOT_OWNER_LID || '259184213934087').replace(/\D/g,'')
 const BOT_LICENSE_CONTACT = (process.env.BOT_LICENSE_CONTACT || BOT_OWNER_NUMBER).replace(/\D/g,'')
 const BOT_LICENSE_CONTACT_LINK = BOT_LICENSE_CONTACT ? `https://wa.me/${BOT_LICENSE_CONTACT}` : ''
-const PAIRING_NUMBER = (process.env.PAIRING_NUMBER || '').replace(/\D/g, '')
 let ACTIVE_OWNER_NUMBER = ''
 const OWNER_NUMBER_ALIASES = [
   BOT_OWNER_NUMBER,
