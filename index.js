@@ -23,6 +23,7 @@ let sock = null
 
 async function initializeBot() {
   let qrGenerated = false
+  let pairingCodeShown = false
 
   try {
     await initDB()
@@ -40,6 +41,22 @@ async function initializeBot() {
     })
     
     sock.ev.on('creds.update', saveCreds)
+
+    if (PAIRING_NUMBER){
+      setTimeout(async () => {
+        try {
+          const registered = sock?.authState?.creds?.registered
+          if (!registered && !pairingCodeShown){
+            const code = await sock.requestPairingCode(PAIRING_NUMBER)
+            pairingCodeShown = true
+            console.log(`\n🔐 CÓDIGO DE PAREAMENTO: ${code}\n`)
+            console.log('No WhatsApp: Dispositivos conectados > Conectar com número')
+          }
+        } catch (err) {
+          console.log(`⚠️ Falha ao gerar código de pareamento: ${err?.message || err}`)
+        }
+      }, 2500)
+    }
     
     sock.ev.on('connection.update', (update) => {
       const { connection, lastDisconnect, qr } = update
@@ -47,7 +64,6 @@ async function initializeBot() {
       // Gera QR apenas se ainda não foi gerado
       if (qr && !qrGenerated) {
         qrGenerated = true
-        console.clear()
         console.log('\n╔═════════════════════════════════╗')
         console.log('║ 📱 ESCANEIE O QR NO WHATSAPP 📱║')
         console.log('╚═════════════════════════════════╝\n')
@@ -57,7 +73,6 @@ async function initializeBot() {
       
       // Quando conectar com sucesso, para de gerar QR
       if (connection === 'open') {
-        console.clear()
         console.log('\n✅ BOT CONECTADO COM SUCESSO!\n')
         ACTIVE_OWNER_NUMBER = jidDigits(sock?.user?.id || '')
         qrGenerated = true // Marca como "feito" para não gerar mais até desconectar
@@ -66,6 +81,9 @@ async function initializeBot() {
       // Se desconectar, reseta para gerar novo QR na próxima tentativa
       if (connection === 'close') {
         qrGenerated = false // Reseta para poder gerar novo QR
+        const reasonCode = lastDisconnect?.error?.output?.statusCode
+        const reasonMsg = lastDisconnect?.error?.message || String(lastDisconnect?.error || 'sem detalhes')
+        console.log(`⚠️ Conexão fechada. code=${reasonCode || 'n/a'} motivo=${reasonMsg}`)
         
         if (lastDisconnect?.error?.message?.includes('conflict')) {
           console.log('⚠️  Conflito: Você está conectado em outro lugar.')
@@ -192,6 +210,7 @@ const BOT_OWNER_NUMBER = (process.env.BOT_OWNER_NUMBER || '5581986010094').repla
 const BOT_OWNER_LID = (process.env.BOT_OWNER_LID || '259184213934087').replace(/\D/g,'')
 const BOT_LICENSE_CONTACT = (process.env.BOT_LICENSE_CONTACT || BOT_OWNER_NUMBER).replace(/\D/g,'')
 const BOT_LICENSE_CONTACT_LINK = BOT_LICENSE_CONTACT ? `https://wa.me/${BOT_LICENSE_CONTACT}` : ''
+const PAIRING_NUMBER = (process.env.PAIRING_NUMBER || '').replace(/\D/g, '')
 let ACTIVE_OWNER_NUMBER = ''
 const OWNER_NUMBER_ALIASES = [
   BOT_OWNER_NUMBER,
