@@ -1,7 +1,13 @@
 {
   "name": "satoru-bot-final",
   "version": "2.0.0",
+  "license": "UNLICENSED",
   "type": "module",
+  "packageManager": "npm@10.8.2",
+  "engines": {
+    "node": "20.x",
+    "npm": "10.x"
+  },
   "scripts": {
     "start": "node index.js",
     "start:resiliente": "node run-bot.js"
