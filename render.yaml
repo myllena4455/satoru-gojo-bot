@@ -4,5 +4,5 @@ services:
     runtime: node
     plan: free
     buildCommand: npm ci
-    startCommand: npm start
+    startCommand: npm run start:resiliente
     autoDeploy: true
