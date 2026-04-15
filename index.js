@@ -1,4 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, fetchLatestBaileysVersion, downloadContentFromMessage } from  '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadContentFromMessage } from  '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal'
 import pino from 'pino'
 import fs from 'fs'
