@@ -24,6 +24,7 @@ let sock = null
 async function initializeBot() {
   let qrGenerated = false
   let pairingCodeShown = false
+  const pairingNumber = (process.env.PAIRING_NUMBER || '').replace(/\D/g, '')
 
   try {
     await initDB()
@@ -42,12 +43,12 @@ async function initializeBot() {
     
     sock.ev.on('creds.update', saveCreds)
 
-    if (PAIRING_NUMBER){
+    if (pairingNumber){
       setTimeout(async () => {
         try {
           const registered = sock?.authState?.creds?.registered
           if (!registered && !pairingCodeShown){
-            const code = await sock.requestPairingCode(PAIRING_NUMBER)
+            const code = await sock.requestPairingCode(pairingNumber)
             pairingCodeShown = true
             console.log(`\n🔐 CÓDIGO DE PAREAMENTO: ${code}\n`)
             console.log('No WhatsApp: Dispositivos conectados > Conectar com número')
