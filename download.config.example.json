@@ -1,0 +1,17 @@
+{
+  "tiktok": {
+    "endpoint": "https://SUA_API_TIKTOK/downloader",
+    "token": "SEU_TOKEN"
+  },
+  "pinterest": {
+    "endpoint": "https://SUA_API_PIN/downloader",
+    "token": "SEU_TOKEN"
+  },
+  "ai": {
+    "provider": "gemini",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+    "token": "SUA_API_KEY",
+    "model": "gemini-2.0-flash",
+    "systemPrompt": "Responda em português do Brasil, de forma útil e objetiva."
+  }
+}
