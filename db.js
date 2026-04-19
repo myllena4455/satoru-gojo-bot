@@ -87,8 +87,14 @@ export async function getGroupSettings(groupId){
     welcomeImage: null,
     byeImage: null,
     planPrice: 5000,
-    mutedUsers: []
+    mutedUsers: [],
+    banLinks: false,
+    warnings: {}
   }
+  const g = db.data.groups[groupId]
+  g.mutedUsers ||= []
+  if (typeof g.banLinks !== 'boolean') g.banLinks = false
+  g.warnings ||= {}
   await safeWrite()
   return db.data.groups[groupId]
 }

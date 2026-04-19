@@ -6,7 +6,7 @@ import path from 'path'
 import { randomBytes } from 'crypto'
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegStatic from 'ffmpeg-static'
-import ytdl from 'ytdl-core'
+import youtubedl from 'youtube-dl-exec'
 
 // ⚠️ Adicionando 'default as db_mod' para fácil acesso ao objeto de banco de dados
 import { initDB, getUser, setUser, saveDB, getTopBy, getGroupCustom, addGroupCustom, removeGroupCustom, listGroupCustom, getGroupSettings, updateGroupSettings, default as db_mod } from './db.js'
@@ -890,6 +890,9 @@ GOJO — MENU PREMIUM
 ㅤ ╰ .ban <numero> — Expulsao imediata (somente admin)
 ㅤ ╰ .muta @user — Silencio absoluto (somente admin) 🔇
 ㅤ ╰ .desmut @user — Devolver a voz (somente admin) 🗣️
+ㅤ ╰ .banlink on/off/status — Anti-link (somente admin) 🔗
+ㅤ ╰ .advertencia @user [motivo] — Aplicar aviso (somente admin) ⚠️
+ㅤ ╰ .banghosts — Remove inativos há 30+ dias (somente admin) 👻
 
 ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 🟣 STATUS: ACESSO ILIMITADO
@@ -926,7 +929,8 @@ GOJO — BRINCADEIRAS
 
 ㅤ ╰ .beijo @user ㅤ ╰ .abraco @user
 ㅤ ╰ .carinho @user ㅤ ╰ .cantada @user
-ㅤ ╰ .poesia ㅤ ╰ .musica
+ㅤ ╰ .poesia ㅤ ╰ .musica <nome>
+ㅤ ╰ .marilia
 
 🎲 ㅤ SORTE & JOGOS:
 
@@ -1031,7 +1035,7 @@ GOJO — GUIA DE COMANDOS
 🎡 ㅤ BRINCADEIRAS:
 
 ㅤ ╰ .beijo / .abraco / .carinho / .cantada 💞
-╰ .poesia / .musica ─ Aleatórios ✨
+╰ .poesia / .musica / .marilia ─ Aleatórios ✨
 ╰ .forca / .letra ─ Jogo da forca 😵‍💫
 ╰ .rankpoder / .rankativos / .rankghost 📊
 
@@ -1039,6 +1043,9 @@ GOJO — GUIA DE COMANDOS
 
 ㅤ ╰ .ban ─ Chuta o inútil do grupo 🚫
 ╰ .muta/desmut ─ Cala a boca de alguém 🔇
+╰ .banlink ─ Bloqueia links no grupo 🔗
+╰ .advertencia ─ Ban automático na 5ª ⚠️
+╰ .banghosts ─ Remove quem sumiu 30+ dias 👻
 ╰ .pcadd/rmv ─ Cria/Deleta comandos ⚙️
 ╰ .plano ─ Ativa o Premium no grupo 💎
 ╰ .setwelcome/bye ─ Mensagens VIP 🖼️
@@ -1180,16 +1187,6 @@ async function extractAudioFromVideoMessage(msg, chatId){
     for (const p of [inPath, outPath]) if (fs.existsSync(p)) fs.unlinkSync(p)
   }
 }
-const YT_REQUEST_OPTIONS = {
-  requestOptions: {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
-      'Referer': 'https://www.youtube.com/'
-    }
-  }
-}
-
 function downloadErrorText(err, source){
   const msg = String(err?.message || err || '')
   const low = msg.toLowerCase()
@@ -1199,25 +1196,74 @@ function downloadErrorText(err, source){
   return `Erro no ${source}: ${msg}`
 }
 async function audioFromYouTube(url, chatId){
-  if (!ytdl.validateURL(url)){ await sock.sendMessage(chatId, { text:'Link inválido do YouTube.' }); return }
+  if (!/youtube\.com|youtu\.be/.test(String(url||''))){
+    await sock.sendMessage(chatId, { text:'Link inválido do YouTube.' })
+    return
+  }
   const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
-  const outPath = `./yt_audio_${uid}.mp3`
+  const outTpl = `./yt_audio_${uid}.%(ext)s`
+  let produced = []
   try {
-    await new Promise((res,rej)=>{
-      const stream = ytdl(url, { quality:'highestaudio', filter:'audioonly', highWaterMark: 1 << 25, ...YT_REQUEST_OPTIONS })
-      ffmpeg(stream).audioCodec('libmp3lame').save(outPath).on('end',res).on('error',rej)
+    await youtubedl(url, {
+      format: 'bestaudio[ext=m4a]/bestaudio/best',
+      output: outTpl,
+      noPlaylist: true,
+      noWarnings: true
     })
-    const audio = fs.readFileSync(outPath)
-    await sock.sendMessage(chatId, { audio, mimetype:'audio/mpeg', ptt:false })
+    produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_audio_${uid}.`))
+    const outPath = produced.find(name => /\.mp3$/i.test(name)) || produced[0]
+    if (!outPath) throw new Error('Arquivo de áudio não foi gerado.')
+    const audio = fs.readFileSync(path.join('.', outPath))
+    const mimetype = /\.m4a$/i.test(outPath) ? 'audio/mp4' : 'audio/mpeg'
+    await sock.sendMessage(chatId, { audio, mimetype, ptt:false })
   } catch (err) {
-    await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de áudio do YouTube') })
+    await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de áudio do YouTube (yt-dlp)') })
   } finally {
-    if (fs.existsSync(outPath)) fs.unlinkSync(outPath)
+    for (const file of produced){
+      const fp = path.join('.', file)
+      if (fs.existsSync(fp)) fs.unlinkSync(fp)
+    }
+  }
+}
+async function audioFromYouTubeSearch(query, chatId){
+  const q = String(query || '').trim()
+  if (!q){
+    await sock.sendMessage(chatId, { text:'Informe o nome da música para buscar.' })
+    return
+  }
+  const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
+  const outTpl = `./yt_audio_${uid}.%(ext)s`
+  let produced = []
+  try {
+    await youtubedl(`ytsearch1:${q}`, {
+      format: 'bestaudio[ext=m4a]/bestaudio/best',
+      output: outTpl,
+      noPlaylist: true,
+      noWarnings: true
+    })
+    produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_audio_${uid}.`))
+    const outPath = produced.find(name => /\.mp3$/i.test(name)) || produced[0]
+    if (!outPath) throw new Error('Nenhum resultado retornou áudio.')
+    const audio = fs.readFileSync(path.join('.', outPath))
+    const mimetype = /\.m4a$/i.test(outPath) ? 'audio/mp4' : 'audio/mpeg'
+    await sock.sendMessage(chatId, { audio, mimetype, ptt:false })
+  } catch (err) {
+    await sock.sendMessage(chatId, { text: downloadErrorText(err, 'busca de música no YouTube (yt-dlp)') })
+  } finally {
+    for (const file of produced){
+      const fp = path.join('.', file)
+      if (fs.existsSync(fp)) fs.unlinkSync(fp)
+    }
   }
 }
 async function audioFromGeneric(link, chatId){
   const cfg = await loadDownloaderConfig()
-  let endpoint='', token=''
+  const endpoint = cfg?.audio?.endpoint || cfg?.tiktok?.endpoint || ''
+  const token = cfg?.audio?.token || cfg?.tiktok?.token || ''
+  if (!endpoint){
+    await sock.sendMessage(chatId, { text:'Sem API de áudio genérico configurada. Use link do YouTube ou configure audio.endpoint em download.config.json.' })
+    return
+  }
   try{
     const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{}) }, body: JSON.stringify({ url: link, noWatermark:true }) })
     if (res.status === 410) throw new Error('410')
@@ -1230,33 +1276,32 @@ async function audioFromGeneric(link, chatId){
   } catch(err){ await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de áudio') }) }
 }
 async function videoFromYouTube(url, chatId){
-  if (!ytdl.validateURL(url)){ await sock.sendMessage(chatId, { text:'Link de YouTube inválido.' }); return }
+  if (!/youtube\.com|youtu\.be/.test(String(url||''))){
+    await sock.sendMessage(chatId, { text:'Link de YouTube inválido.' })
+    return
+  }
   const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
+  const outTpl = `./yt_video_${uid}.%(ext)s`
+  let produced = []
   try {
-    const info = await ytdl.getInfo(url, YT_REQUEST_OPTIONS)
-    const format = ytdl.chooseFormat(info.formats, {
-      quality: 'highest',
-      filter: 'audioandvideo'
+    await youtubedl(url, {
+      format: 'best[ext=mp4]/best',
+      output: outTpl,
+      noPlaylist: true,
+      noWarnings: true
     })
-    const container = format.container || 'mp4'
-    const outPath = `./yt_video_${uid}.${container}`
-    await new Promise((resolve, reject)=>{
-      const file = fs.createWriteStream(outPath)
-      const stream = ytdl.downloadFromInfo(info, { format, highWaterMark: 1 << 25, ...YT_REQUEST_OPTIONS })
-      stream.on('error', reject)
-      file.on('error', reject)
-      file.on('finish', resolve)
-      stream.pipe(file)
-    })
-    const vid = fs.readFileSync(outPath)
-    const mimetype = container === 'webm' ? 'video/webm' : 'video/mp4'
+    produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_video_${uid}.`))
+    const outPath = produced.find(name => /\.mp4$/i.test(name)) || produced[0]
+    if (!outPath) throw new Error('Arquivo de vídeo não foi gerado.')
+    const vid = fs.readFileSync(path.join('.', outPath))
+    const mimetype = /\.webm$/i.test(outPath) ? 'video/webm' : 'video/mp4'
     await sock.sendMessage(chatId, { video: vid, mimetype, caption:'🎬 Vídeo baixado com sucesso!' })
   } catch (err) {
-    await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de vídeo do YouTube') })
+    await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de vídeo do YouTube (yt-dlp)') })
   } finally {
-    const possible = [`./yt_video_${uid}.mp4`, `./yt_video_${uid}.webm`, `./yt_video_${uid}.mkv`]
-    for (const filePath of possible){
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+    for (const file of produced){
+      const fp = path.join('.', file)
+      if (fs.existsSync(fp)) fs.unlinkSync(fp)
     }
   }
 }
@@ -1321,6 +1366,23 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
     groupSponsored = sponsor.active
   }
   const accessGranted = ownerContext || license.active || groupSponsored
+
+  if (isGroup && groupSettings?.banLinks){
+    const hasLink = /(https?:\/\/|www\.|chat\.whatsapp\.com\/|wa\.me\/)/i.test(text)
+    if (hasLink){
+      try {
+        const meta = await sock.groupMetadata(chatId)
+        const admins = new Set(meta.participants.filter(p=>p.admin).map(p=>p.id))
+        const isPrivileged = admins.has(sender) || ownerContext
+        if (!isPrivileged){
+          try { await sock.sendMessage(chatId, { delete: msg.key }) } catch {}
+          await sock.sendMessage(chatId, { text:`🔗 Link bloqueado. @${jidToNumber(sender)}, links não são permitidos neste grupo.`, mentions:[sender] }, { quoted: msg })
+          await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+          return
+        }
+      } catch {}
+    }
+  }
 
   // Stickers
   const directImage = getDirectImageMessage(msg)
@@ -1691,7 +1753,8 @@ SATORU GOJO — BLOQUEADO
     const prof = getProfession(u)
     await db_mod.read(); db_mod.data.clans ||= {}
     const clan = u.clan ? db_mod.data.clans[u.clan]?.name || u.clan : 'Sem Clã'
-    const filhos = u.children && u.children.length > 0 ? `${u.children.length} filho(s): ${u.children.join(', ')}` : 'Nenhum'
+    const filhosCount = u.children?.length || 0
+    const filhos = filhosCount > 0 ? u.children.join(', ') : 'Nenhum'
     const poder = calcPower(u)
     const defesa = calcDefense(u)
     const classText = CLASSES.find(c => c.id === u.classe)?.name || 'Nenhuma'
@@ -1724,7 +1787,8 @@ PERFIL DE FEITICEIRO
 ㅤ ╰  Estado: ${casado} 💍
 ㅤ ╰  Cônjuge(s): ${conjugesText}
 ㅤ ╰  Clã: ${clan} 🛡️
-ㅤ ╰  Filhos: ${filhos} 👶
+ㅤ ╰  Quantidade de filhos: ${filhosCount} 👶
+ㅤ ╰  Filhos: ${filhos}
 
 💰 ECONOMIA:
 
@@ -2536,14 +2600,13 @@ Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
 
   if (cmd==='adotar'){
     const u = await getUser(sender)
-    if (!normalizeMarriedList(u.marriedTo).length){ await sock.sendMessage(chatId, { text:'Você precisa estar casado para adotar!' }, { quoted: msg }); return }
     if ((u.coins||0) < 500){ await sock.sendMessage(chatId, { text:'Você precisa de 500 coins para adotar.' }, { quoted: msg }); return }
     u.coins -= 500
-    const childName = `Filho${u.children?.length || 0 + 1}`
+    const childName = `Filho${(u.children?.length || 0) + 1}`
     u.children = u.children || []
     u.children.push(childName)
     await saveDB()
-    await sock.sendMessage(chatId, { text:`👶 Parabéns! Você adotou ${childName}!` }, { quoted: msg })
+    await sock.sendMessage(chatId, { text:`👶 Parabéns! Você adotou ${childName}! Agora você tem ${u.children.length} filho(s).` }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
@@ -2903,14 +2966,42 @@ simplesmente o mais forte.” — Satoru 🤞
   }
 
   if (cmd==='musica' || cmd==='música'){
-    const musicas = [
-      '🎵 Satoru Vibes — Infinite Mood',
-      '🎵 Jujutsu Beat — Domain Drop',
-      '🎵 Lo-fi Feiticeiro — Night Shift',
-      '🎵 Energia Amaldiçoada FM — Vol. 1',
-      '🎵 Tokyo Neon — Hollow Purple Mix'
+    const query = arg.join(' ').trim()
+    if (query){
+      await sock.sendMessage(chatId, { text:`🎧 Buscando áudio: ${query}` }, { quoted: msg })
+      if (/youtube\.com|youtu\.be/.test(query)) await audioFromYouTube(query, chatId)
+      else await audioFromYouTubeSearch(`${query} audio oficial`, chatId)
+      await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+      return
+    }
+
+    const randomQueries = [
+      'top músicas brasileiras 2026',
+      'sertanejo universitário sucessos',
+      'pagode anos 2000 melhores',
+      'funk consciente brasil',
+      'hits pop brasil oficial'
     ]
-    await sock.sendMessage(chatId, { text:`🎶 Música aleatória pra você:\n${pick(musicas)}` }, { quoted: msg })
+    const chosenQuery = pick(randomQueries)
+    await sock.sendMessage(chatId, { text:`🎶 Música aleatória:\n${chosenQuery}` }, { quoted: msg })
+    await audioFromYouTubeSearch(chosenQuery, chatId)
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+
+  if (cmd==='marilia' || cmd==='mariliamendonca' || cmd==='mariliamendonsa'){
+    const mariliaQueries = [
+      'Marília Mendonça Infiel áudio oficial',
+      'Marília Mendonça Eu Sei de Cor áudio oficial',
+      'Marília Mendonça Todo Mundo Vai Sofrer áudio oficial',
+      'Marília Mendonça Ciumeira áudio oficial',
+      'Marília Mendonça Supera áudio oficial',
+      'Marília Mendonça De Quem É a Culpa áudio oficial',
+      'Marília Mendonça Troca de Calçada áudio oficial'
+    ]
+    const chosen = pick(mariliaQueries)
+    await sock.sendMessage(chatId, { text:'🎤 Tocando uma aleatória da Marília Mendonça...' }, { quoted: msg })
+    await audioFromYouTubeSearch(chosen, chatId)
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
@@ -2959,6 +3050,88 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!num){ await sock.sendMessage(chatId, { text:'Use: .ban <numero_com_ddd>' }, { quoted: msg }); return }
     await sock.groupParticipantsUpdate(chatId, [toNumberJid(num)], 'remove')
     await sock.sendMessage(chatId, { text:`Usuário ${num} removido do grupo.` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+  if (cmd==='banlink'){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
+    const meta = await sock.groupMetadata(chatId)
+    const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
+    if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar .banlink.' }, { quoted: msg }); return }
+    const mode = (arg[0] || 'status').toLowerCase()
+    const settings = await getGroupSettings(chatId)
+    if (['on','ativar','1'].includes(mode)){
+      await updateGroupSettings(chatId, { banLinks: true })
+      await sock.sendMessage(chatId, { text:'🔗 Anti-link ativado neste grupo.' }, { quoted: msg })
+    } else if (['off','desativar','0'].includes(mode)){
+      await updateGroupSettings(chatId, { banLinks: false })
+      await sock.sendMessage(chatId, { text:'✅ Anti-link desativado neste grupo.' }, { quoted: msg })
+    } else {
+      await sock.sendMessage(chatId, { text:`Status anti-link: ${settings.banLinks ? 'ATIVO' : 'INATIVO'}\nUse: .banlink on | .banlink off` }, { quoted: msg })
+    }
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+  if (cmd==='advertencia' || cmd==='advertência' || cmd==='adivertencia' || cmd==='adivertência' || cmd==='warn'){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
+    const meta = await sock.groupMetadata(chatId)
+    const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
+    if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem aplicar advertência.' }, { quoted: msg }); return }
+    const targetRaw = (arg[0] || '').replace(/[^0-9]/g,'')
+    if (!targetRaw){ await sock.sendMessage(chatId, { text:'Use: .advertencia @user [motivo]' }, { quoted: msg }); return }
+    const target = toNumberJid(targetRaw)
+    const reason = arg.slice(1).join(' ').trim() || 'Sem motivo informado.'
+    const settings = await getGroupSettings(chatId)
+    const warnings = { ...(settings.warnings || {}) }
+    warnings[target] = (warnings[target] || 0) + 1
+
+    if (warnings[target] >= 5){
+      delete warnings[target]
+      await updateGroupSettings(chatId, { warnings })
+      await sock.groupParticipantsUpdate(chatId, [target], 'remove')
+      await sock.sendMessage(chatId, {
+        text:`🚫 @${targetRaw} recebeu a 5ª advertência e foi banido do grupo.`,
+        mentions:[target]
+      }, { quoted: msg })
+      await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+      return
+    }
+
+    await updateGroupSettings(chatId, { warnings })
+    await sock.sendMessage(chatId, {
+      text:`⚠️ Advertência aplicada em @${targetRaw}.\nTotal: ${warnings[target]}/5\nMotivo: ${reason}`,
+      mentions:[target]
+    }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+  if (cmd==='banghosts'){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
+    const meta = await sock.groupMetadata(chatId)
+    const admins = new Set(meta.participants.filter(p=>p.admin).map(p=>p.id))
+    if (!admins.has(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar .banghosts.' }, { quoted: msg }); return }
+
+    const limitMs = 30 * 24 * 60 * 60 * 1000
+    const cutoff = Date.now() - limitMs
+    const candidates = []
+    for (const p of meta.participants){
+      if (admins.has(p.id)) continue
+      const u = await getUser(p.id)
+      if ((u.lastActive || 0) <= cutoff) candidates.push(p.id)
+    }
+
+    if (!candidates.length){
+      await sock.sendMessage(chatId, { text:'✅ Ninguém para remover. Sem mensagens há mais de 30 dias: 0 usuários.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+      return
+    }
+
+    await sock.groupParticipantsUpdate(chatId, candidates, 'remove')
+    const list = candidates.map(j=>`@${jidToNumber(j)}`).join(', ')
+    await sock.sendMessage(chatId, {
+      text:`👻 Limpeza concluída! Removidos por inatividade de 30+ dias: ${candidates.length}\n${list}`,
+      mentions: candidates
+    }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
@@ -3308,7 +3481,7 @@ SATORU GOJO — BLOQUEADO
     if (quoted){ const q={ key:{...msg.key, id: ctx.stanzaId}, message:{ videoMessage: quoted } }; await extractAudioFromVideoMessage(q, chatId); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return }
     await sock.sendMessage(chatId, { text:'Use: .audio <link> ou responda um VÍDEO com .audio' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return
   }
-  if (cmd==='video' || cmd==='vidio'){
+  if (cmd==='video' || cmd==='vidio' || cmd==='viedeo'){
     const link=arg[0]||''
     if (!link){ await sock.sendMessage(chatId, { text:'Use: .video <link YouTube/Pinterest>\nPinterest grátis: envie o link de board para usar RSS.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
     if (/youtube\.com|youtu\.be/.test(link)) await videoFromYouTube(link, chatId); else await videoFromGeneric(link, chatId)
