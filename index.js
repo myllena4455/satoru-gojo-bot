@@ -151,6 +151,17 @@ function jidToNumber(jid){
     .replace(/@.+$/, '')
   return base
 }
+function getMentionedJids(msg, arg = []){
+  const ctxMentions = msg?.message?.extendedTextMessage?.contextInfo?.mentionedJid || []
+  const argMentions = (arg || [])
+    .map(x => String(x || '').replace(/[^0-9]/g,''))
+    .filter(Boolean)
+    .map(toNumberJid)
+  return [...new Set([...ctxMentions, ...argMentions])]
+}
+function getFirstMentionedJid(msg, arg = []){
+  return getMentionedJids(msg, arg)[0] || ''
+}
 function lvlForXP(xp){ return Math.floor(xp / 100) + 1 }
 function fmtDate(ts){ const d=new Date(ts); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` }
 function timeSince(ts){ const s=Math.floor((Date.now()-ts)/1000); const u=[[31536000,'ano'],[2592000,'mês'],[604800,'semana'],[86400,'dia'],[3600,'h'],[60,'min'],[1,'s']]; for(const [x,n] of u){ if(s>=x){const v=Math.floor(s/x); return `${v} ${n}${v>1&&n!=='h'?'s':''}`}} return 'agora' }
@@ -1190,10 +1201,29 @@ async function extractAudioFromVideoMessage(msg, chatId){
 function downloadErrorText(err, source){
   const msg = String(err?.message || err || '')
   const low = msg.toLowerCase()
+  if (low.includes('sign in to confirm you’re not a bot') || low.includes("sign in to confirm you're not a bot")){
+    return `Erro no ${source}: o YouTube pediu verificação anti-bot.\nConfigure cookies no servidor via .env:\n- YTDLP_COOKIES=/caminho/youtube.cookies.txt\n- ou YTDLP_COOKIES_FROM_BROWSER=chrome\nDepois reinicie o bot.`
+  }
   if (low.includes('410')) return `Erro 410 no ${source}. O link pode estar indisponível/expirado ou bloqueado temporariamente.`
   if (low.includes('403')) return `Erro 403 no ${source}. Tente novamente em alguns minutos ou use outro link.`
   if (low.includes('429')) return `Muitas requisições no ${source}. Aguarde um pouco e tente novamente.`
   return `Erro no ${source}: ${msg}`
+}
+function getYtDlpBaseOptions(){
+  const cookies = (process.env.YTDLP_COOKIES || '').trim()
+  const cookiesFromBrowser = (process.env.YTDLP_COOKIES_FROM_BROWSER || '').trim()
+  const opts = {
+    noPlaylist: true,
+    noWarnings: true,
+    extractorArgs: 'youtube:player_client=android,web',
+    addHeader: [
+      'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept-Language:pt-BR,pt;q=0.9,en-US;q=0.8'
+    ]
+  }
+  if (cookies) opts.cookies = cookies
+  if (cookiesFromBrowser) opts.cookiesFromBrowser = cookiesFromBrowser
+  return opts
 }
 async function audioFromYouTube(url, chatId){
   if (!/youtube\.com|youtu\.be/.test(String(url||''))){
@@ -1207,8 +1237,7 @@ async function audioFromYouTube(url, chatId){
     await youtubedl(url, {
       format: 'bestaudio[ext=m4a]/bestaudio/best',
       output: outTpl,
-      noPlaylist: true,
-      noWarnings: true
+      ...getYtDlpBaseOptions()
     })
     produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_audio_${uid}.`))
     const outPath = produced.find(name => /\.mp3$/i.test(name)) || produced[0]
@@ -1238,8 +1267,7 @@ async function audioFromYouTubeSearch(query, chatId){
     await youtubedl(`ytsearch1:${q}`, {
       format: 'bestaudio[ext=m4a]/bestaudio/best',
       output: outTpl,
-      noPlaylist: true,
-      noWarnings: true
+      ...getYtDlpBaseOptions()
     })
     produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_audio_${uid}.`))
     const outPath = produced.find(name => /\.mp3$/i.test(name)) || produced[0]
@@ -1287,8 +1315,7 @@ async function videoFromYouTube(url, chatId){
     await youtubedl(url, {
       format: 'best[ext=mp4]/best',
       output: outTpl,
-      noPlaylist: true,
-      noWarnings: true
+      ...getYtDlpBaseOptions()
     })
     produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_video_${uid}.`))
     const outPath = produced.find(name => /\.mp4$/i.test(name)) || produced[0]
@@ -2409,10 +2436,8 @@ ${names}` }, { quoted: msg })
 
   if (cmd==='casar'){
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
-    const targetNumbers = [...new Set(arg
-      .filter(x => x.includes('@'))
-      .map(x => x.replace(/[^0-9]/g,''))
-      .filter(Boolean))]
+    const targetJids = getMentionedJids(msg, arg).filter(jid => jid !== sender)
+    const targetNumbers = targetJids.map(jidToNumber)
     if (!targetNumbers.length || targetNumbers.length > 2){
       await sock.sendMessage(chatId, { text:'Use: .casar @user ou .casar @user1 @user2 (casamento a 3).' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
@@ -2612,16 +2637,17 @@ Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
   }
 
   if (cmd==='pix' || cmd==='enviar'){
-    const target = arg[0] || ''
-    const amount = parseInt(arg[1]||'0', 10)
-    if (!target || !amount){ await sock.sendMessage(chatId, { text:'Use: .pix @user <quantidade>' }, { quoted: msg }); return }
+    const targetJid = getFirstMentionedJid(msg, arg)
+    const amountRaw = arg.find(x => /^\d+$/.test(String(x || ''))) || '0'
+    const amount = parseInt(amountRaw, 10)
+    if (!targetJid || !amount){ await sock.sendMessage(chatId, { text:'Use: .pix @user <quantidade>' }, { quoted: msg }); return }
     const u = await getUser(sender)
     if ((u.coins||0) < amount){ await sock.sendMessage(chatId, { text:'Saldo insuficiente.' }, { quoted: msg }); return }
-    const receiver = await getUser(target)
+    const receiver = await getUser(targetJid)
     u.coins -= amount
     receiver.coins = (receiver.coins || 0) + amount
     await saveDB()
-    await sock.sendMessage(chatId, { text:`✅ Você enviou ${amount} coins para ${target}` }, { quoted: msg })
+    await sock.sendMessage(chatId, { text:`✅ Você enviou ${amount} coins para @${jidToNumber(targetJid)}`, mentions:[targetJid] }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
@@ -2790,14 +2816,11 @@ Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
     return
   }
   if (cmd==='ship' || cmd==='love' || cmd==='casal' || cmd==='kiss'){
-    const targetAraw = arg[0] || ''
-    const targetBraw = arg[1] || ''
-    const n1 = targetAraw.replace(/[^0-9]/g,'')
-    const n2 = targetBraw.replace(/[^0-9]/g,'')
-    if (!n1 || !n2){ await sock.sendMessage(chatId, { text:'Use: .ship @user1 @user2' }, { quoted: msg }); return }
+    const targets = getMentionedJids(msg, arg).filter(jid => jid !== sender)
+    if (targets.length < 2){ await sock.sendMessage(chatId, { text:'Use: .ship @user1 @user2' }, { quoted: msg }); return }
 
-    const j1 = toNumberJid(n1)
-    const j2 = toNumberJid(n2)
+    const j1 = targets[0]
+    const j2 = targets[1]
     const score = Math.floor(Math.random()*101)
     const filled = Math.max(0, Math.min(10, Math.floor(score / 10)))
     const bar = `[${'▰'.repeat(filled)}${'▱'.repeat(10 - filled)}]`
@@ -2852,14 +2875,12 @@ bastante por todo esse grupo.” — Satoru 🤭
   }
 
   if (cmd==='beijo' || cmd==='abraco' || cmd==='abraço' || cmd==='carinho'){
-    const targetRaw = arg[0] || ''
-    const num = targetRaw.replace(/[^0-9]/g,'')
-    if (!num){
+    const target = getFirstMentionedJid(msg, arg)
+    if (!target){
       await sock.sendMessage(chatId, { text:`Use: .${cmd} @user` }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
     }
-    const target = toNumberJid(num)
     const actor = `@${jidToNumber(sender)}`
     const dest = `@${jidToNumber(target)}`
     const map = {
@@ -2874,14 +2895,12 @@ bastante por todo esse grupo.” — Satoru 🤭
   }
 
   if (cmd==='cantada'){
-    const targetRaw = arg[0] || ''
-    const num = targetRaw.replace(/[^0-9]/g,'')
-    if (!num){
+    const target = getFirstMentionedJid(msg, arg)
+    if (!target){
       await sock.sendMessage(chatId, { text:'Use: .cantada @user' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
     }
-    const target = toNumberJid(num)
     const cantadas = [
       'Você não é técnica amaldiçoada, mas me deixou sem defesa.',
       'Seu olhar acerta mais que meu Seis Olhos.',
@@ -3030,9 +3049,9 @@ simplesmente o mais forte.” — Satoru 🤞
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
     if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar este comando.' }, { quoted: msg }); return }
-    const targetRaw = (arg[0]||'').replace(/[^0-9]/g,'')
-    if (!targetRaw){ await sock.sendMessage(chatId, { text:`Use: .${cmd} @user` }, { quoted: msg }); return }
-    const target = toNumberJid(targetRaw)
+    const target = getFirstMentionedJid(msg, arg)
+    if (!target){ await sock.sendMessage(chatId, { text:`Use: .${cmd} @user` }, { quoted: msg }); return }
+    const targetRaw = jidToNumber(target)
     const muted = new Set(groupSettings?.mutedUsers || [])
     if (cmd==='muta') muted.add(target)
     else muted.delete(target)
@@ -3046,7 +3065,8 @@ simplesmente o mais forte.” — Satoru 🤞
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
     if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem banir.' }, { quoted: msg }); return }
-    const num = arg[0] && arg[0].replace(/[^0-9]/g,'')
+    const mentioned = getFirstMentionedJid(msg, arg)
+    const num = mentioned ? jidToNumber(mentioned) : (arg[0] && arg[0].replace(/[^0-9]/g,''))
     if (!num){ await sock.sendMessage(chatId, { text:'Use: .ban <numero_com_ddd>' }, { quoted: msg }); return }
     await sock.groupParticipantsUpdate(chatId, [toNumberJid(num)], 'remove')
     await sock.sendMessage(chatId, { text:`Usuário ${num} removido do grupo.` }, { quoted: msg })
@@ -3077,10 +3097,11 @@ simplesmente o mais forte.” — Satoru 🤞
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
     if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem aplicar advertência.' }, { quoted: msg }); return }
-    const targetRaw = (arg[0] || '').replace(/[^0-9]/g,'')
-    if (!targetRaw){ await sock.sendMessage(chatId, { text:'Use: .advertencia @user [motivo]' }, { quoted: msg }); return }
-    const target = toNumberJid(targetRaw)
-    const reason = arg.slice(1).join(' ').trim() || 'Sem motivo informado.'
+    const target = getFirstMentionedJid(msg, arg)
+    if (!target){ await sock.sendMessage(chatId, { text:'Use: .advertencia @user [motivo]' }, { quoted: msg }); return }
+    const targetRaw = jidToNumber(target)
+    const reasonParts = (arg || []).filter(x => !String(x || '').includes('@') && !/^\d+$/.test(String(x || '').replace(/[^0-9]/g,'')))
+    const reason = reasonParts.join(' ').trim() || 'Sem motivo informado.'
     const settings = await getGroupSettings(chatId)
     const warnings = { ...(settings.warnings || {}) }
     warnings[target] = (warnings[target] || 0) + 1
