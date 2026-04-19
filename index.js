@@ -1519,8 +1519,7 @@ SATORU GOJO — BLOQUEADO
   const lowerText = text.toLowerCase()
   const insultWords = ['pqp','fdp','fodase','vai se fuder','vai se foder','burro','idiota','otario','otário','merda']
   const hasInsult = insultWords.some(w=> lowerText.includes(w))
-  const insultDirectedAtBot = isBotMentioned(msg)
-  if (hasInsult && (insultDirectedAtBot || !isGroup)){
+  if (hasInsult){
     await sendDebocheWarning(chatId, msg, 'xinga')
     await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
     return
