@@ -8,7 +8,7 @@
    - `(3) Erro de Execução de Comandos.mp3` → toca quando dá erro/anti-flood/comando desconhecido
    - `(4) Tentativa de Execução de Comandos Vips.mp3` → toca quando usuário sem admin tenta comandos de admin
    - `(5) Você é Fraco.mp3` → toca quando perde no RPS ou rankpau < 20%
-4) (Opcional) Edite `download.config.json` para TikTok/Pinterest sem marca d’água e IA.
+4) (Opcional) Edite `download.config.json` para Pinterest sem marca d’água e IA.
     - Comando IA: `.ia <pergunta>` (ou `.ai <pergunta>`)
     - Configure em `download.config.json` a seção `ai`:
        - `endpoint`: endpoint compatível com OpenAI Chat Completions

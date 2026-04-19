@@ -978,8 +978,8 @@ GOJO — VARIADO
 🎵 ㅤ DOWNLOADS:
 
 ㅤ ╰ .audio <link> ─ Baixa música do YT 🎶
-ㅤ ╰ .video <link> ─ Baixa vídeo (YT/TT/Pin) 🎥
-ㅤ ╰ .tiktok <link> ─ Baixa vídeo via APIs TikTok ⚡
+ㅤ ╰ .video <link> ─ Baixa vídeo (YT/Pin) 🎥
+
 
 🤖 ㅤ IA:
 
@@ -1000,6 +1000,7 @@ GOJO — VARIADO
 ㅤ ╰ .verdade <assunto> ─ Revela uma verdade 🗣️
 ㅤ ╰ .quem @user1 @user2 ─ Escolhe alguém aleatório ❓
 ㅤ ╰ .todos <mensagem> ─ Marca todo mundo do grupo 📣
+ㅤ ╰ .marcar <mensagem> ─ Convocação com marcação geral 📢
 
 ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 🔵 VARIADO INFINITO: ATIVADO
@@ -1053,6 +1054,31 @@ async function sendMenu(chatId, quoted){
   if (img) await sock.sendMessage(chatId, { image: img, caption }, { quoted })
   else await sock.sendMessage(chatId, { text: caption }, { quoted })
 }
+
+function getMenuImagePath(cat){
+  const key = (cat || '').toLowerCase()
+  const map = {
+    rpg: './assets/menu rpg.jpg',
+    premium: './assets/menu premium.jpeg',
+    premio: './assets/menu premium.jpeg',
+    brincadeiras: './assets/menubrinca.jpeg',
+    ajuda: './assets/menu ajuda.jpeg',
+    variado: './assets/menu variado.jpeg',
+    variedades: './assets/menu variado.jpeg',
+    dono: './assets/menu dono.jpeg',
+    owner: './assets/menu dono.jpeg'
+  }
+  const selected = map[key] || './assets/menu.png'
+  if (fs.existsSync(selected)) return selected
+  return fs.existsSync('./assets/menu.png') ? './assets/menu.png' : null
+}
+
+async function sendMenuCategory(chatId, quoted, cat, caption){
+  const menuPath = getMenuImagePath(cat)
+  const img = menuPath ? fs.readFileSync(menuPath) : null
+  if (img) await sock.sendMessage(chatId, { image: img, caption }, { quoted })
+  else await sock.sendMessage(chatId, { text: caption }, { quoted })
+}
 async function extractAudioFromVideoMessage(msg, chatId){
   const stream = await downloadMediaBuffer(msg, 'buffer')
   const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
@@ -1067,19 +1093,37 @@ async function extractAudioFromVideoMessage(msg, chatId){
     for (const p of [inPath, outPath]) if (fs.existsSync(p)) fs.unlinkSync(p)
   }
 }
+const YT_REQUEST_OPTIONS = {
+  requestOptions: {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
+      'Referer': 'https://www.youtube.com/'
+    }
+  }
+}
+
+function downloadErrorText(err, source){
+  const msg = String(err?.message || err || '')
+  const low = msg.toLowerCase()
+  if (low.includes('410')) return `Erro 410 no ${source}. O link pode estar indisponível/expirado ou bloqueado temporariamente.`
+  if (low.includes('403')) return `Erro 403 no ${source}. Tente novamente em alguns minutos ou use outro link.`
+  if (low.includes('429')) return `Muitas requisições no ${source}. Aguarde um pouco e tente novamente.`
+  return `Erro no ${source}: ${msg}`
+}
 async function audioFromYouTube(url, chatId){
   if (!ytdl.validateURL(url)){ await sock.sendMessage(chatId, { text:'Link inválido do YouTube.' }); return }
   const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
   const outPath = `./yt_audio_${uid}.mp3`
   try {
     await new Promise((res,rej)=>{
-      const stream = ytdl(url, { quality:'highestaudio', filter:'audioonly' })
+      const stream = ytdl(url, { quality:'highestaudio', filter:'audioonly', highWaterMark: 1 << 25, ...YT_REQUEST_OPTIONS })
       ffmpeg(stream).audioCodec('libmp3lame').save(outPath).on('end',res).on('error',rej)
     })
     const audio = fs.readFileSync(outPath)
     await sock.sendMessage(chatId, { audio, mimetype:'audio/mpeg', ptt:false })
   } catch (err) {
-    await sock.sendMessage(chatId, { text:`Erro ao baixar áudio do YouTube: ${err.message}` })
+    await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de áudio do YouTube') })
   } finally {
     if (fs.existsSync(outPath)) fs.unlinkSync(outPath)
   }
@@ -1092,19 +1136,20 @@ async function audioFromGeneric(link, chatId){
   if (!endpoint){ await sock.sendMessage(chatId, { text:'Configure sua API em download.config.json para TikTok/Pinterest (sem marca d’água).' }); return }
   try{
     const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{}) }, body: JSON.stringify({ url: link, noWatermark:true }) })
+    if (res.status === 410) throw new Error('410')
     if (!res.ok) throw new Error('Downloader falhou: '+res.status)
     const data = await res.json()
     const audioUrl = data.audio_no_wm || data.audio || data.url_audio
     if (!audioUrl) throw new Error('Resposta sem áudio')
     const buff = await httpGetBuffer(audioUrl)
     await sock.sendMessage(chatId, { audio: buff, mimetype:'audio/mpeg' })
-  } catch(err){ await sock.sendMessage(chatId, { text:'Erro ao baixar áudio: '+err.message }) }
+  } catch(err){ await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de áudio') }) }
 }
 async function videoFromYouTube(url, chatId){
   if (!ytdl.validateURL(url)){ await sock.sendMessage(chatId, { text:'Link de YouTube inválido.' }); return }
   const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
   try {
-    const info = await ytdl.getInfo(url)
+    const info = await ytdl.getInfo(url, YT_REQUEST_OPTIONS)
     const format = ytdl.chooseFormat(info.formats, {
       quality: 'highest',
       filter: 'audioandvideo'
@@ -1113,7 +1158,7 @@ async function videoFromYouTube(url, chatId){
     const outPath = `./yt_video_${uid}.${container}`
     await new Promise((resolve, reject)=>{
       const file = fs.createWriteStream(outPath)
-      const stream = ytdl(url, { format })
+      const stream = ytdl.downloadFromInfo(info, { format, highWaterMark: 1 << 25, ...YT_REQUEST_OPTIONS })
       stream.on('error', reject)
       file.on('error', reject)
       file.on('finish', resolve)
@@ -1123,7 +1168,7 @@ async function videoFromYouTube(url, chatId){
     const mimetype = container === 'webm' ? 'video/webm' : 'video/mp4'
     await sock.sendMessage(chatId, { video: vid, mimetype, caption:'🎬 Vídeo baixado com sucesso!' })
   } catch (err) {
-    await sock.sendMessage(chatId, { text:`Erro ao baixar vídeo do YouTube: ${err.message}` })
+    await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de vídeo do YouTube') })
   } finally {
     const possible = [`./yt_video_${uid}.mp4`, `./yt_video_${uid}.webm`, `./yt_video_${uid}.mkv`]
     for (const filePath of possible){
@@ -1158,13 +1203,14 @@ async function videoFromGeneric(link, chatId){
   if (!endpoint){ await sock.sendMessage(chatId, { text:'Configure sua API em download.config.json para TikTok/Pinterest (sem marca d’água).' }); return }
   try{
     const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{}) }, body: JSON.stringify({ url: link, noWatermark:true }) })
+    if (res.status === 410) throw new Error('410')
     if (!res.ok) throw new Error('Downloader falhou: '+res.status)
     const data = await res.json()
     const url = data.url_no_wm || data.nowm || data.video_no_watermark || data.url || data.video
     if (!url) throw new Error('Resposta sem link de vídeo')
     const buff = await httpGetBuffer(url)
     await sock.sendMessage(chatId, { video: buff, caption:'🎬 Vídeo baixado (sem marca d’água, quando a API permitir).' })
-  } catch(err){ await sock.sendMessage(chatId, { text:'Erro ao baixar vídeo: '+err.message }) }
+  } catch(err){ await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de vídeo') }) }
 }
 
 // ===== Main =====
@@ -1509,7 +1555,7 @@ SATORU GOJO — BLOQUEADO
       const text = isPremiumMenu
         ? await menuPremiumWithCustomCommands(chatId, isGroup)
         : menuCategoryText(cat)
-      await sock.sendMessage(chatId, { text }, { quoted: msg })
+      await sendMenuCategory(chatId, msg, isPremiumMenu ? 'premium' : cat, text)
     } else {
       await sendMenu(chatId, msg)
     }
@@ -1522,7 +1568,7 @@ SATORU GOJO — BLOQUEADO
       await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3')
       return
     }
-    await sock.sendMessage(chatId, { text: menuCategoryText('dono') }, { quoted: msg })
+    await sendMenuCategory(chatId, msg, 'dono', menuCategoryText('dono'))
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
@@ -1534,9 +1580,10 @@ SATORU GOJO — BLOQUEADO
       return
     }
     const text = menuCategoryText(cat)
-    await sock.sendMessage(chatId, { text }, { quoted: msg })
+    await sendMenuCategory(chatId, msg, cat, text)
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
+  }
   }
 
   // Perfil & status
@@ -2490,7 +2537,7 @@ ${names}` }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
-  if (cmd==='todos' || cmd==='marcartodos' || cmd==='tagall'){
+  if (cmd==='todos' || cmd==='marcartodos' || cmd==='tagall' || cmd==='marcar'){
     if (!isGroup){
       await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
@@ -2504,9 +2551,31 @@ ${names}` }, { quoted: msg })
       return
     }
     const mentions = meta.participants.map(p => p.id)
-    const header = arg.join(' ').trim() || '📣 Atenção, geral!'
-    const lines = mentions.map(jid => `@${jidToNumber(jid)}`)
-    await sock.sendMessage(chatId, { text: `${header}\n\n${lines.join('\n')}`, mentions }, { quoted: msg })
+    const mensagem = arg.join(' ').trim() || 'Sem mensagem informada.'
+    const lista_de_membros = mentions.map(jid => `@${jidToNumber(jid)}`).join('\n')
+    const convocacao = `📢 ㅤ   ▬▬▬ㅤ
+CONVOCAÇÃO DO INFINITO
+ㅤ 👁️  "Acordem! Eu tenho um aviso." ㅤ .
+
+┌──────────────────────┐
+ㅤ  Prestem atenção aqui, bando de
+ㅤ  inúteis. Eu não vou repetir. O
+ㅤ  aviso está logo abaixo, então
+ㅤ  leiam e voltem a fazer nada. 🍬✨
+└──────────────────────┘
+
+📣 ㅤ AVISO DO DIA:
+
+${mensagem}
+
+👥 ㅤ LISTA DE ALVOS:
+
+${lista_de_membros}
+
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+🔵 STATUS: Todos os membros marcados.
+◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤`
+    await sock.sendMessage(chatId, { text: convocacao, mentions }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
@@ -2675,7 +2744,7 @@ SATORU GOJO — BLOQUEADO
     if (quoted){ const q={ key:{...msg.key, id: ctx.stanzaId}, message:{ videoMessage: quoted } }; await extractAudioFromVideoMessage(q, chatId); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return }
     await sock.sendMessage(chatId, { text:'Use: .audio <link> ou responda um VÍDEO com .audio' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return
   }
-  if (cmd==='video'){
+  if (cmd==='video' || cmd==='vidio'){
     const link=arg[0]||''
     if (!link){ await sock.sendMessage(chatId, { text:'Use: .video <link YouTube/TikTok/Pinterest>\nPinterest grátis: envie o link de board para usar RSS.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
     if (/youtube\.com|youtu\.be/.test(link)) await videoFromYouTube(link, chatId); else await videoFromGeneric(link, chatId)
@@ -2746,6 +2815,11 @@ SATORU GOJO — BLOQUEADO
 await sendDebocheWarning(chatId, msg, 'invalid')
   await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
 })
+
+
+
+
+
 
 
 
