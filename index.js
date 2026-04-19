@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadContentFromMessage } from  '@whiskeysockets/baileys';
+﻿import { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadContentFromMessage } from  '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal'
 import pino from 'pino'
 import fs from 'fs'
@@ -20,6 +20,8 @@ ffmpeg.setFfmpegPath(ffmpegStatic)
 
 const logger = pino({ level: 'silent' }) // Silencia logs da Baileys
 let sock = null
+const AUTH_DIR = process.env.AUTH_DIR || './auth'
+const DOWNLOAD_CONFIG_FILE = process.env.DOWNLOAD_CONFIG_FILE || './download.config.json'
 
 async function initializeBot() {
   let qrGenerated = false
@@ -28,7 +30,8 @@ async function initializeBot() {
 
   try {
     await initDB()
-    const { state, saveCreds } = await useMultiFileAuthState('./auth')
+    fs.mkdirSync(AUTH_DIR, { recursive: true })
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
     const { version } = await fetchLatestBaileysVersion()
     
     sock = makeWASocket({ 
@@ -545,11 +548,8 @@ async function maybeUpdateLastActive(userId){ const u = await getUser(userId); u
 import fsPromises from 'fs/promises'
 
 async function loadDownloaderConfig(){
-
-  try{ return JSON.parse(await fsPromises.readFile('./download.config.json','utf8')) }
-
-  catch{ return { tiktok:{endpoint:'',token:''}, pinterest:{endpoint:'',token:''}, ai:{provider:'gemini',endpoint:'https://generativelanguage.googleapis.com/v1beta',token:'',model:'gemini-2.0-flash',systemPrompt:''} } }
-
+  try{ return JSON.parse(await fsPromises.readFile(DOWNLOAD_CONFIG_FILE,'utf8')) }
+  catch{ return { tiktok:{endpoint:'',token:''}, pinterest:{endpoint:'',token:''}, ai:{provider:'gemini',endpoint:'https://generativelanguage.googleapis.com/v1beta',token:'',model:'gemini-2.0-flash',systemPrompt:''} } }
 }
 
 async function httpGetBuffer(url, headers={}){ const res=await fetch(url,{headers}); if(!res.ok) throw new Error('HTTP '+res.status); const ab=await res.arrayBuffer(); return Buffer.from(new Uint8Array(ab)) }
@@ -721,12 +721,12 @@ async function askAI(prompt, userName='Usuário'){
 const lastCmdAt = new Map(), cmdWindow = new Map(), floodLockUntil = new Map(), lastStickerAt = new Map()
 const COOLDOWN_MS=1500, WINDOW_MS=30000, WINDOW_MAX=10, FLOOD_LOCK_MS=30000
 function canRunCommand(userId){
-  const now=Date.now(), lock=floodLockUntil.get(userId)||0
-  if (now<lock) return {ok:false, reason:`⌛ Anti-flood: aguarde ${Math.ceil((lock-now)/1000)}s.`}
-  const last=lastCmdAt.get(userId)||0; if (now-last<COOLDOWN_MS) return {ok:false, reason:'⚠️ Aguarde 1.5s entre comandos.'}
-  const arr=(cmdWindow.get(userId)||[]).filter(t=>now-t<WINDOW_MS); arr.push(now); cmdWindow.set(userId,arr)
-  if (arr.length>WINDOW_MAX){ floodLockUntil.set(userId, now+FLOOD_LOCK_MS); cmdWindow.set(userId, []); return {ok:false, reason:'🚫 Flood detectado. Bloqueado por 30s.'} }
-  lastCmdAt.set(userId, now); return {ok:true}
+  const now=Date.now(), lock=floodLockUntil.get(userId)||0
+  if (now<lock) return {ok:false, reason:`⌛ Anti-flood: aguarde ${Math.ceil((lock-now)/1000)}s.`}
+  const last=lastCmdAt.get(userId)||0; if (now-last<COOLDOWN_MS) return {ok:false, reason:'⚠️ Aguarde 1.5s entre comandos.'}
+  const arr=(cmdWindow.get(userId)||[]).filter(t=>now-t<WINDOW_MS); arr.push(now); cmdWindow.set(userId,arr)
+  if (arr.length>WINDOW_MAX){ floodLockUntil.set(userId, now+FLOOD_LOCK_MS); cmdWindow.set(userId, []); return {ok:false, reason:'🚫 Flood detectado. Bloqueado por 30s.'} }
+  lastCmdAt.set(userId, now); return {ok:true}
 }
 function canSendSticker(userId){ const now=Date.now(), last=lastStickerAt.get(userId)||0; if(now-last<1000) return false; lastStickerAt.set(userId, now); return true }
 
@@ -755,8 +755,8 @@ GOJO — MENU RPG
 
 🛒 ㅤ LOJA RPG:
 
-ㅤ ╰ .loja ㅤ ╰ .loja <categoria>
-ㅤ ╰ .buy <categoria> <id>
+ㅤ ╰ .loja
+ㅤ ╰ .buy <id>
 
 🏹 ㅤ COLETA E EXPLORAÇÃO:
 
@@ -960,7 +960,7 @@ GOJO — GUIA DE COMANDOS
 📧 SUPORTE: satoru.suport24hs@gmail.com
 📱 LICENÇA: ${BOT_LICENSE_CONTACT || 'não configurado'}${BOT_LICENSE_CONTACT_LINK ? ` (${BOT_LICENSE_CONTACT_LINK})` : ''}
 ◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤` }
-  if (key === 'variado'){
+  if (key === 'variado' || key === 'variedades'){
     return `🎭 ㅤ   ▬▬▬ㅤ
 GOJO — VARIADO
 ㅤ 🍬ㅤ  "Diversão sem limites, como eu." ㅤ .
@@ -999,6 +999,7 @@ GOJO — VARIADO
 ㅤ ╰ .mimimi <texto> ─ Transforma em choradeira 😭
 ㅤ ╰ .verdade <assunto> ─ Revela uma verdade 🗣️
 ㅤ ╰ .quem @user1 @user2 ─ Escolhe alguém aleatório ❓
+ㅤ ╰ .todos <mensagem> ─ Marca todo mundo do grupo 📣
 
 ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 🔵 VARIADO INFINITO: ATIVADO
@@ -1023,10 +1024,10 @@ ${lines}`
 }
 
 async function sendMenu(chatId, quoted){
-  const menuPath = fs.existsSync('./assets/menu.jpg')
-    ? './assets/menu.jpg'
-    : (fs.existsSync('./assets/menu.png') ? './assets/menu.png' : null)
-  const img = menuPath ? fs.readFileSync(menuPath) : null
+  const menuPath = fs.existsSync('./assets/menu.jpg')
+    ? './assets/menu.jpg'
+    : (fs.existsSync('./assets/menu.png') ? './assets/menu.png' : null)
+  const img = menuPath ? fs.readFileSync(menuPath) : null
   const caption = `🌌 ⫐⫐  SATORU GOJO ⫐⫐ 🌌
 ㅤ ㅤ  "Relaxa, eu sou o mais forte."  ㅤ .
 
@@ -1053,56 +1054,56 @@ async function sendMenu(chatId, quoted){
   else await sock.sendMessage(chatId, { text: caption }, { quoted })
 }
 async function extractAudioFromVideoMessage(msg, chatId){
-  const stream = await downloadMediaBuffer(msg, 'buffer')
-  const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
-  const inPath = `./tmp_in_${uid}.mp4`
-  const outPath = `./tmp_out_${uid}.mp3`
-  try {
-    fs.writeFileSync(inPath, stream)
-    await new Promise((res,rej)=>{ ffmpeg(inPath).noVideo().audioCodec('libmp3lame').save(outPath).on('end',res).on('error',rej) })
-    const audio = fs.readFileSync(outPath)
-    await sock.sendMessage(chatId, { audio, mimetype:'audio/mpeg' })
-  } finally {
-    for (const p of [inPath, outPath]) if (fs.existsSync(p)) fs.unlinkSync(p)
-  }
+  const stream = await downloadMediaBuffer(msg, 'buffer')
+  const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
+  const inPath = `./tmp_in_${uid}.mp4`
+  const outPath = `./tmp_out_${uid}.mp3`
+  try {
+    fs.writeFileSync(inPath, stream)
+    await new Promise((res,rej)=>{ ffmpeg(inPath).noVideo().audioCodec('libmp3lame').save(outPath).on('end',res).on('error',rej) })
+    const audio = fs.readFileSync(outPath)
+    await sock.sendMessage(chatId, { audio, mimetype:'audio/mpeg' })
+  } finally {
+    for (const p of [inPath, outPath]) if (fs.existsSync(p)) fs.unlinkSync(p)
+  }
 }
 async function audioFromYouTube(url, chatId){
-  if (!ytdl.validateURL(url)){ await sock.sendMessage(chatId, { text:'Link inválido do YouTube.' }); return }
-  const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
-  const outPath = `./yt_audio_${uid}.mp3`
-  try {
-    await new Promise((res,rej)=>{
-      const stream = ytdl(url, { quality:'highestaudio', filter:'audioonly' })
-      ffmpeg(stream).audioCodec('libmp3lame').save(outPath).on('end',res).on('error',rej)
-    })
-    const audio = fs.readFileSync(outPath)
+  if (!ytdl.validateURL(url)){ await sock.sendMessage(chatId, { text:'Link inválido do YouTube.' }); return }
+  const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
+  const outPath = `./yt_audio_${uid}.mp3`
+  try {
+    await new Promise((res,rej)=>{
+      const stream = ytdl(url, { quality:'highestaudio', filter:'audioonly' })
+      ffmpeg(stream).audioCodec('libmp3lame').save(outPath).on('end',res).on('error',rej)
+    })
+    const audio = fs.readFileSync(outPath)
     await sock.sendMessage(chatId, { audio, mimetype:'audio/mpeg', ptt:false })
   } catch (err) {
     await sock.sendMessage(chatId, { text:`Erro ao baixar áudio do YouTube: ${err.message}` })
-  } finally {
-    if (fs.existsSync(outPath)) fs.unlinkSync(outPath)
-  }
+  } finally {
+    if (fs.existsSync(outPath)) fs.unlinkSync(outPath)
+  }
 }
 async function audioFromGeneric(link, chatId){
-  const cfg = await loadDownloaderConfig()
-  let endpoint='', token=''
-  if (/tiktok\.com/.test(link)){ endpoint = cfg.tiktok.endpoint; token = cfg.tiktok.token }
-  else if (/pinterest\.com/.test(link)){ endpoint = cfg.pinterest.endpoint; token = cfg.pinterest.token }
-  if (!endpoint){ await sock.sendMessage(chatId, { text:'Configure sua API em download.config.json para TikTok/Pinterest (sem marca d’água).' }); return }
-  try{
-    const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{}) }, body: JSON.stringify({ url: link, noWatermark:true }) })
-    if (!res.ok) throw new Error('Downloader falhou: '+res.status)
-    const data = await res.json()
-    const audioUrl = data.audio_no_wm || data.audio || data.url_audio
-    if (!audioUrl) throw new Error('Resposta sem áudio')
-    const buff = await httpGetBuffer(audioUrl)
-    await sock.sendMessage(chatId, { audio: buff, mimetype:'audio/mpeg' })
-  } catch(err){ await sock.sendMessage(chatId, { text:'Erro ao baixar áudio: '+err.message }) }
+  const cfg = await loadDownloaderConfig()
+  let endpoint='', token=''
+  if (/tiktok\.com/.test(link)){ endpoint = cfg.tiktok.endpoint; token = cfg.tiktok.token }
+  else if (/pinterest\.com/.test(link)){ endpoint = cfg.pinterest.endpoint; token = cfg.pinterest.token }
+  if (!endpoint){ await sock.sendMessage(chatId, { text:'Configure sua API em download.config.json para TikTok/Pinterest (sem marca d’água).' }); return }
+  try{
+    const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{}) }, body: JSON.stringify({ url: link, noWatermark:true }) })
+    if (!res.ok) throw new Error('Downloader falhou: '+res.status)
+    const data = await res.json()
+    const audioUrl = data.audio_no_wm || data.audio || data.url_audio
+    if (!audioUrl) throw new Error('Resposta sem áudio')
+    const buff = await httpGetBuffer(audioUrl)
+    await sock.sendMessage(chatId, { audio: buff, mimetype:'audio/mpeg' })
+  } catch(err){ await sock.sendMessage(chatId, { text:'Erro ao baixar áudio: '+err.message }) }
 }
 async function videoFromYouTube(url, chatId){
-  if (!ytdl.validateURL(url)){ await sock.sendMessage(chatId, { text:'Link de YouTube inválido.' }); return }
-  const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
-  try {
+  if (!ytdl.validateURL(url)){ await sock.sendMessage(chatId, { text:'Link de YouTube inválido.' }); return }
+  const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
+  try {
     const info = await ytdl.getInfo(url)
     const format = ytdl.chooseFormat(info.formats, {
       quality: 'highest',
@@ -1118,64 +1119,64 @@ async function videoFromYouTube(url, chatId){
       file.on('finish', resolve)
       stream.pipe(file)
     })
-    const vid = fs.readFileSync(outPath)
+    const vid = fs.readFileSync(outPath)
     const mimetype = container === 'webm' ? 'video/webm' : 'video/mp4'
     await sock.sendMessage(chatId, { video: vid, mimetype, caption:'🎬 Vídeo baixado com sucesso!' })
   } catch (err) {
     await sock.sendMessage(chatId, { text:`Erro ao baixar vídeo do YouTube: ${err.message}` })
-  } finally {
+  } finally {
     const possible = [`./yt_video_${uid}.mp4`, `./yt_video_${uid}.webm`, `./yt_video_${uid}.mkv`]
     for (const filePath of possible){
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
     }
-  }
+  }
 }
 async function videoFromGeneric(link, chatId){
-  const cfg = await loadDownloaderConfig()
-  let endpoint='', token=''
-  if (/tiktok\.com/.test(link)){ endpoint = cfg.tiktok.endpoint; token = cfg.tiktok.token }
-  else if (/pinterest\.com/.test(link)){ endpoint = cfg.pinterest.endpoint; token = cfg.pinterest.token }
+  const cfg = await loadDownloaderConfig()
+  let endpoint='', token=''
+  if (/tiktok\.com/.test(link)){ endpoint = cfg.tiktok.endpoint; token = cfg.tiktok.token }
+  else if (/pinterest\.com/.test(link)){ endpoint = cfg.pinterest.endpoint; token = cfg.pinterest.token }
 
-  // Pinterest: fallback gratuito via RSS de board quando API não estiver configurada.
-  if (/pinterest\.com/.test(link) && !endpoint){
-    try {
-      const { rssUrl, urls } = await fetchPinterestRssImages(link, 3)
-      for (const [i, u] of urls.entries()){
-        const img = await httpGetBuffer(u)
-        await sock.sendMessage(chatId, {
-          image: img,
-          caption: `📌 Pinterest RSS ${i+1}/${urls.length}\nFonte: ${rssUrl}`
-        })
-      }
-      return
-    } catch (err){
-      await sock.sendMessage(chatId, { text:'Pinterest RSS falhou: ' + err.message })
-      return
-    }
-  }
+  // Pinterest: fallback gratuito via RSS de board quando API não estiver configurada.
+  if (/pinterest\.com/.test(link) && !endpoint){
+    try {
+      const { rssUrl, urls } = await fetchPinterestRssImages(link, 3)
+      for (const [i, u] of urls.entries()){
+        const img = await httpGetBuffer(u)
+        await sock.sendMessage(chatId, {
+          image: img,
+          caption: `📌 Pinterest RSS ${i+1}/${urls.length}\nFonte: ${rssUrl}`
+        })
+      }
+      return
+    } catch (err){
+      await sock.sendMessage(chatId, { text:'Pinterest RSS falhou: ' + err.message })
+      return
+    }
+  }
 
-  if (!endpoint){ await sock.sendMessage(chatId, { text:'Configure sua API em download.config.json para TikTok/Pinterest (sem marca d’água).' }); return }
-  try{
-    const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{}) }, body: JSON.stringify({ url: link, noWatermark:true }) })
-    if (!res.ok) throw new Error('Downloader falhou: '+res.status)
-    const data = await res.json()
-    const url = data.url_no_wm || data.nowm || data.video_no_watermark || data.url || data.video
-    if (!url) throw new Error('Resposta sem link de vídeo')
-    const buff = await httpGetBuffer(url)
-    await sock.sendMessage(chatId, { video: buff, caption:'🎬 Vídeo baixado (sem marca d’água, quando a API permitir).' })
-  } catch(err){ await sock.sendMessage(chatId, { text:'Erro ao baixar vídeo: '+err.message }) }
+  if (!endpoint){ await sock.sendMessage(chatId, { text:'Configure sua API em download.config.json para TikTok/Pinterest (sem marca d’água).' }); return }
+  try{
+    const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{}) }, body: JSON.stringify({ url: link, noWatermark:true }) })
+    if (!res.ok) throw new Error('Downloader falhou: '+res.status)
+    const data = await res.json()
+    const url = data.url_no_wm || data.nowm || data.video_no_watermark || data.url || data.video
+    if (!url) throw new Error('Resposta sem link de vídeo')
+    const buff = await httpGetBuffer(url)
+    await sock.sendMessage(chatId, { video: buff, caption:'🎬 Vídeo baixado (sem marca d’água, quando a API permitir).' })
+  } catch(err){ await sock.sendMessage(chatId, { text:'Erro ao baixar vídeo: '+err.message }) }
 }
 
 // ===== Main =====
 sock.ev.on('messages.upsert', async ({ messages, type })=>{
-  if (type!=='notify') return
-  const msg = messages[0]
-  if (!msg?.message) return
-  const chatId = msg.key.remoteJid
+  if (type!=='notify') return
+  const msg = messages[0]
+  if (!msg?.message) return
+  const chatId = msg.key.remoteJid
   const sender = resolveSenderJid(msg)
-  const isGroup = chatId.endsWith('@g.us')
-  const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
-  await maybeUpdateLastActive(sender)
+  const isGroup = chatId.endsWith('@g.us')
+  const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
+  await maybeUpdateLastActive(sender)
 
   const groupSettings = isGroup ? await getGroupSettings(chatId) : null
   if (isGroup && groupSettings?.mutedUsers?.includes(sender)){
@@ -1192,7 +1193,7 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   }
   const accessGranted = ownerContext || license.active || groupSponsored
 
-  // Stickers
+  // Stickers
   const directImage = getDirectImageMessage(msg)
   if (directImage){
     if (!accessGranted){
@@ -1242,40 +1243,40 @@ SATORU GOJO — BLOQUEADO
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
     }
-    return
-  }
+    return
+  }
 
-  // Exec custom group commands (before parsing built-ins)
-  if (isGroup && (text.startsWith('.') || text.startsWith('!'))){
-    const trigger = text.slice(1).trim().split(/\s+/)[0].toLowerCase()
-    const g = await getGroupCustom(chatId)
-    const found = g.commands[trigger]
-    if (found){ await sock.sendMessage(chatId, { text: found.msg }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return }
-  }
+  // Exec custom group commands (before parsing built-ins)
+  if (isGroup && (text.startsWith('.') || text.startsWith('!'))){
+    const trigger = text.slice(1).trim().split(/\s+/)[0].toLowerCase()
+    const g = await getGroupCustom(chatId)
+    const found = g.commands[trigger]
+    if (found){ await sock.sendMessage(chatId, { text: found.msg }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return }
+  }
 
-  const lowerText = text.toLowerCase()
-  const insultWords = ['pqp','fdp','fodase','vai se fuder','vai se foder','burro','idiota','otario','otário','merda']
-  const hasInsult = insultWords.some(w=> lowerText.includes(w))
+  const lowerText = text.toLowerCase()
+  const insultWords = ['pqp','fdp','fodase','vai se fuder','vai se foder','burro','idiota','otario','otário','merda']
+  const hasInsult = insultWords.some(w=> lowerText.includes(w))
   if (hasInsult && (isBotMentioned(msg) || !isGroup)){
     await sendDebocheWarning(chatId, msg, 'xinga')
     await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
-    return
-  }
-  if (/uchiha|uchhiha|sharingan/.test(lowerText)){
-    await sendReactionImage(chatId, msg, [
-      '🔥 Uchhiha? Tá falando do clã errado com o Gojo.',
-      '👀 Uchiha vem, mas aqui só tem domínio verdadeiro.',
-      '⚡ Se for falar de Uchiha, escolhe palavra com respeito.'
-    ])
-    return
-  }
+    return
+  }
+  if (/uchiha|uchhiha|sharingan/.test(lowerText)){
+    await sendReactionImage(chatId, msg, [
+      '🔥 Uchhiha? Tá falando do clã errado com o Gojo.',
+      '👀 Uchiha vem, mas aqui só tem domínio verdadeiro.',
+      '⚡ Se for falar de Uchiha, escolhe palavra com respeito.'
+    ])
+    return
+  }
 
-  const parts = parseCommandText(text)
-  if (!parts) return
+  const parts = parseCommandText(text)
+  if (!parts) return
 
-  // Anti-flood
-  const chk = canRunCommand(sender)
-  if (!chk.ok){ await sock.sendMessage(chatId, { text: chk.reason }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+  // Anti-flood
+  const chk = canRunCommand(sender)
+  if (!chk.ok){ await sock.sendMessage(chatId, { text: chk.reason }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
 
   const rawCmd = (parts[0]||'').toLowerCase()
   const cmdAliases = {
@@ -1284,7 +1285,7 @@ SATORU GOJO — BLOQUEADO
     clase: 'classe'
   }
   const cmd = cmdAliases[rawCmd] || rawCmd
-  const arg = parts.slice(1)
+  const arg = parts.slice(1)
 
   if (cmd==='debugdono'){
     const senderDigits = jidDigits(sender)
@@ -1493,7 +1494,7 @@ SATORU GOJO — BLOQUEADO
     return
   }
 
-  // Menu / Ajuda
+  // Menu / Ajuda
   if (cmd==='menu'){
     const catInput = arg[0] || ''
     const catNorm = catInput.toLowerCase()
@@ -1508,13 +1509,13 @@ SATORU GOJO — BLOQUEADO
       const text = isPremiumMenu
         ? await menuPremiumWithCustomCommands(chatId, isGroup)
         : menuCategoryText(cat)
-      await sock.sendMessage(chatId, { text }, { quoted: msg })
-    } else {
-      await sendMenu(chatId, msg)
-    }
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
+      await sock.sendMessage(chatId, { text }, { quoted: msg })
+    } else {
+      await sendMenu(chatId, msg)
+    }
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
   if (cmd==='menudono'){
     if (!ownerContext){
       await sock.sendMessage(chatId, { text:'Apenas o dono do bot pode ver esse menu.' }, { quoted: msg })
@@ -1525,31 +1526,31 @@ SATORU GOJO — BLOQUEADO
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
-  if (cmd==='ajuda'){
-    const cat = arg[0] || 'ajuda'
+  if (cmd==='ajuda'){
+    const cat = arg[0] || 'ajuda'
     if (['dono','owner'].includes(cat.toLowerCase()) && !ownerContext){
       await sock.sendMessage(chatId, { text:'Apenas o dono do bot pode ver esse menu.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3')
       return
     }
-    const text = menuCategoryText(cat)
-    await sock.sendMessage(chatId, { text }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
+    const text = menuCategoryText(cat)
+    await sock.sendMessage(chatId, { text }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
 
-  // Perfil & status
-  if (cmd==='perfil'){
-    const u = await getUser(sender)
-    const numero = jidToNumber(sender)
-    const nome = u.name || msg.pushName || 'Usuário'
-    const level = u.level || 1, xp = u.xp || 0, coins=u.coins||0, bank=u.bank||0
-    const items=(u.items||[]).length
-    const status = u.status || '—'
-    const created = u.createdAt ? fmtDate(u.createdAt) : '—'
-    const age = u.createdAt ? timeSince(u.createdAt) : '—'
-    const titulo = u.titulo || 'Novato'
-    const casado = u.casado || 'Solteiro(a)'
+  // Perfil & status
+  if (cmd==='perfil'){
+    const u = await getUser(sender)
+    const numero = jidToNumber(sender)
+    const nome = u.name || msg.pushName || 'Usuário'
+    const level = u.level || 1, xp = u.xp || 0, coins=u.coins||0, bank=u.bank||0
+    const items=(u.items||[]).length
+    const status = u.status || '—'
+    const created = u.createdAt ? fmtDate(u.createdAt) : '—'
+    const age = u.createdAt ? timeSince(u.createdAt) : '—'
+    const titulo = u.titulo || 'Novato'
+    const casado = u.casado || 'Solteiro(a)'
     const prof = getProfession(u)
     await db_mod.read(); db_mod.data.clans ||= {}
     const clan = u.clan ? db_mod.data.clans[u.clan]?.name || u.clan : 'Sem Clã'
@@ -1626,36 +1627,36 @@ chegue no meu nivel." — Satoru 🤭
     }
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
-  }
+  }
 
-  if (cmd==='setstatus'){
-    const texto = arg.join(' ').trim()
-    if (!texto){ await sock.sendMessage(chatId, { text:'Use: .setstatus <sua frase estilosa>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const u = await getUser(sender); u.status = texto.slice(0,120); await saveDB()
-    await sock.sendMessage(chatId, { text:`Status atualizado: “${u.status}”. Agora sim, com cara de jogador caro.` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
+  if (cmd==='setstatus'){
+    const texto = arg.join(' ').trim()
+    if (!texto){ await sock.sendMessage(chatId, { text:'Use: .setstatus <sua frase estilosa>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const u = await getUser(sender); u.status = texto.slice(0,120); await saveDB()
+    await sock.sendMessage(chatId, { text:`Status atualizado: “${u.status}”. Agora sim, com cara de jogador caro.` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
 
-  // Setname
-  if (cmd==='setname'){
-    const name = arg.join(' ').trim()
-    if (!name){ await sock.sendMessage(chatId, { text:'Use: .setname <nome>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    await setUser(sender, { name })
-    await sock.sendMessage(chatId, { text:`Beleza, vou usar “${name}” nas suas figurinhas.` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
+  // Setname
+  if (cmd==='setname'){
+    const name = arg.join(' ').trim()
+    if (!name){ await sock.sendMessage(chatId, { text:'Use: .setname <nome>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    await setUser(sender, { name })
+    await sock.sendMessage(chatId, { text:`Beleza, vou usar “${name}” nas suas figurinhas.` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
 
-  // Economy & store
-  if (cmd==='work'){
-    const u = await getUser(sender); const now=Date.now(); u.cooldowns ||= {}
-    if ((u.cooldowns.work||0) > now){
-      const sec=Math.ceil((u.cooldowns.work-now)/1000)
-      await sock.sendMessage(chatId, { text:`Calma, respira. Falta ${sec}s para trabalhar de novo.` }, { quoted: msg })
-      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
-      return
-    }
+  // Economy & store
+  if (cmd==='work'){
+    const u = await getUser(sender); const now=Date.now(); u.cooldowns ||= {}
+    if ((u.cooldowns.work||0) > now){
+      const sec=Math.ceil((u.cooldowns.work-now)/1000)
+      await sock.sendMessage(chatId, { text:`Calma, respira. Falta ${sec}s para trabalhar de novo.` }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
     const base=50+Math.floor(Math.random()*51)
     const boost=(u.items||[]).reduce((s,it)=>s + ((it.boost||0) + (it.workBoost||0)),0)
     const gain=Math.floor(base*(1+Math.min(boost,1)))
@@ -1697,97 +1698,97 @@ chegue no meu nivel." — Satoru 🤭
     return
   }
 
-  if (cmd==='roubar' || cmd==='steal'){
-    const num=(arg[0]||'').replace(/[^0-9]/g,'')
-    if (!num){ await sock.sendMessage(chatId, { text:'Use: .roubar <numero_com_ddd>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const attacker=await getUser(sender), victim=await getUser(toNumberJid(num))
-    if ((victim.coins||0)<50){ await sock.sendMessage(chatId, { text:'Alvo com pouco dinheiro.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const success=Math.random() < Math.min(0.4 + calcPrecision(attacker), 0.85)
-    if (success){
-      const stolen=Math.min(victim.coins, Math.floor(Math.random()*Math.floor(victim.coins*0.3)))
-      victim.coins-=stolen; attacker.coins=(attacker.coins||0)+stolen; await saveDB()
-      await sock.sendMessage(chatId, { text:`Roubo bem-sucedido! Pegou ${stolen} coins.` }, { quoted: msg })
-      await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    } else {
-      const penalty=Math.min(attacker.coins||0, Math.max(5, 20 - Math.floor(calcEscape(attacker)*10))); attacker.coins=(attacker.coins||0)-penalty; await saveDB()
-      await sock.sendMessage(chatId, { text:`Falhou! Multa de ${penalty} coins.` }, { quoted: msg })
-      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
-    }
-    return
-  }
+  if (cmd==='roubar' || cmd==='steal'){
+    const num=(arg[0]||'').replace(/[^0-9]/g,'')
+    if (!num){ await sock.sendMessage(chatId, { text:'Use: .roubar <numero_com_ddd>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const attacker=await getUser(sender), victim=await getUser(toNumberJid(num))
+    if ((victim.coins||0)<50){ await sock.sendMessage(chatId, { text:'Alvo com pouco dinheiro.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const success=Math.random() < Math.min(0.4 + calcPrecision(attacker), 0.85)
+    if (success){
+      const stolen=Math.min(victim.coins, Math.floor(Math.random()*Math.floor(victim.coins*0.3)))
+      victim.coins-=stolen; attacker.coins=(attacker.coins||0)+stolen; await saveDB()
+      await sock.sendMessage(chatId, { text:`Roubo bem-sucedido! Pegou ${stolen} coins.` }, { quoted: msg })
+      await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    } else {
+      const penalty=Math.min(attacker.coins||0, Math.max(5, 20 - Math.floor(calcEscape(attacker)*10))); attacker.coins=(attacker.coins||0)-penalty; await saveDB()
+      await sock.sendMessage(chatId, { text:`Falhou! Multa de ${penalty} coins.` }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+    }
+    return
+  }
 
-  if (cmd==='minerar'){
-    const u = await getUser(sender)
-    const now = Date.now(); u.cooldowns ||= {}
-    if ((u.cooldowns.minerar||0) > now){ await sock.sendMessage(chatId, { text:`Já minerou recentemente. Tente de novo em ${Math.ceil((u.cooldowns.minerar-now)/1000)}s.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const boost = (u.items||[]).reduce((s,it)=>s + (it.mineBoost||0),0)
+  if (cmd==='minerar'){
+    const u = await getUser(sender)
+    const now = Date.now(); u.cooldowns ||= {}
+    if ((u.cooldowns.minerar||0) > now){ await sock.sendMessage(chatId, { text:`Já minerou recentemente. Tente de novo em ${Math.ceil((u.cooldowns.minerar-now)/1000)}s.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const boost = (u.items||[]).reduce((s,it)=>s + (it.mineBoost||0),0)
     const foundBase = Math.floor(30 + Math.random()*70 + calcPower(u)/2)
     const found = Math.floor(foundBase * (1 + Math.min(boost,1)))
-    u.coins = (u.coins||0) + found
-    const mined = Math.floor(Math.random()*3 + 1)
+    u.coins = (u.coins||0) + found
+    const mined = Math.floor(Math.random()*3 + 1)
     u.materials.minerio = (u.materials.minerio||0) + mined
-    u.xp = (u.xp||0) + 12
-    u.cooldowns.minerar = now + 45*1000
-    await saveDB()
-    await sock.sendMessage(chatId, { text:`⛏️ Você minerou e ganhou ${found} coins + materiais. Minério +${mined}.` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
-  if (cmd==='cacar'){
-    const u = await getUser(sender)
-    const now = Date.now(); u.cooldowns ||= {}
-    if ((u.cooldowns.cacar||0) > now){ await sock.sendMessage(chatId, { text:`Caça em cooldown. Tente novamente em ${Math.ceil((u.cooldowns.cacar-now)/1000)}s.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const boost = (u.items||[]).reduce((s,it)=>s + (it.huntBoost||0),0)
+    u.xp = (u.xp||0) + 12
+    u.cooldowns.minerar = now + 45*1000
+    await saveDB()
+    await sock.sendMessage(chatId, { text:`⛏️ Você minerou e ganhou ${found} coins + materiais. Minério +${mined}.` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+  if (cmd==='cacar'){
+    const u = await getUser(sender)
+    const now = Date.now(); u.cooldowns ||= {}
+    if ((u.cooldowns.cacar||0) > now){ await sock.sendMessage(chatId, { text:`Caça em cooldown. Tente novamente em ${Math.ceil((u.cooldowns.cacar-now)/1000)}s.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const boost = (u.items||[]).reduce((s,it)=>s + (it.huntBoost||0),0)
     const lootBase = Math.floor(20 + Math.random()*60 + calcPower(u)/2)
     const loot = Math.floor(lootBase * (1 + Math.min(boost,1)))
-    u.coins = (u.coins||0) + loot
-    const meat = Math.floor(Math.random()*2 + 1)
+    u.coins = (u.coins||0) + loot
+    const meat = Math.floor(Math.random()*2 + 1)
     u.materials.carne = (u.materials.carne||0) + meat
-    u.xp = (u.xp||0) + 14
-    u.cooldowns.cacar = now + 60*1000
-    await saveDB()
-    await sock.sendMessage(chatId, { text:`🏹 Você saiu para caçar e ganhou ${loot} coins + carne. Carne +${meat}.` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
-  if (cmd==='plantar' && !arg[0]){
-    const u = await getUser(sender)
-    const now = Date.now(); u.cooldowns ||= {}
-    if ((u.cooldowns.plantar||0) > now){ await sock.sendMessage(chatId, { text:`Sua plantação precisa de tempo. Tente de novo em ${Math.ceil((u.cooldowns.plantar-now)/1000)}s.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const boost = (u.items||[]).reduce((s,it)=>s + (it.plantBoost||0),0)
+    u.xp = (u.xp||0) + 14
+    u.cooldowns.cacar = now + 60*1000
+    await saveDB()
+    await sock.sendMessage(chatId, { text:`🏹 Você saiu para caçar e ganhou ${loot} coins + carne. Carne +${meat}.` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+  if (cmd==='plantar' && !arg[0]){
+    const u = await getUser(sender)
+    const now = Date.now(); u.cooldowns ||= {}
+    if ((u.cooldowns.plantar||0) > now){ await sock.sendMessage(chatId, { text:`Sua plantação precisa de tempo. Tente de novo em ${Math.ceil((u.cooldowns.plantar-now)/1000)}s.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const boost = (u.items||[]).reduce((s,it)=>s + (it.plantBoost||0),0)
     const gainBase = Math.floor(25 + Math.random()*55)
     const gain = Math.floor(gainBase * (1 + Math.min(boost,1)))
-    u.coins = (u.coins||0) + gain
-    const herbs = Math.floor(Math.random()*3 + 1)
+    u.coins = (u.coins||0) + gain
+    const herbs = Math.floor(Math.random()*3 + 1)
     u.materials.erva = (u.materials.erva||0) + herbs
-    u.xp = (u.xp||0) + 10
-    u.cooldowns.plantar = now + 90*1000
-    await saveDB()
-    await sock.sendMessage(chatId, { text:`🌿 Você plantou e colheu ervas. Ganhou ${gain} coins + ervas. Ervas +${herbs}.` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
-  if (cmd==='explorar'){
-    const u = await getUser(sender); const now = Date.now(); u.cooldowns ||= {}
-    if ((u.cooldowns.explorar||0) > now){ await sock.sendMessage(chatId, { text:`Exploração em cooldown. Tente novamente em ${Math.ceil((u.cooldowns.explorar-now)/1000)}s.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const power = calcPower(u), defense = calcDefense(u)
-    const boost = (u.items||[]).reduce((s,it)=>s + ((it.exploreBoost||0) + (it.boost||0)),0)
+    u.xp = (u.xp||0) + 10
+    u.cooldowns.plantar = now + 90*1000
+    await saveDB()
+    await sock.sendMessage(chatId, { text:`🌿 Você plantou e colheu ervas. Ganhou ${gain} coins + ervas. Ervas +${herbs}.` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+  if (cmd==='explorar'){
+    const u = await getUser(sender); const now = Date.now(); u.cooldowns ||= {}
+    if ((u.cooldowns.explorar||0) > now){ await sock.sendMessage(chatId, { text:`Exploração em cooldown. Tente novamente em ${Math.ceil((u.cooldowns.explorar-now)/1000)}s.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const power = calcPower(u), defense = calcDefense(u)
+    const boost = (u.items||[]).reduce((s,it)=>s + ((it.exploreBoost||0) + (it.boost||0)),0)
   const isBoss = Math.random() < 0.12
   const foundHiddenDungeon = !isBoss && Math.random() < 0.16
-    let textRes = ''
-    if (isBoss){
-      const bossPower = 45, bossDefense = 25
-      if (power + 10 + Math.floor(calcPrecision(u)*10) > bossPower){
-              const reward = 150 + Math.floor(Math.random()*120)
-        u.coins = (u.coins||0)+reward
-        u.xp = (u.xp||0)+30
-        u.bossesDefeated = (u.bossesDefeated||0)+1
-        textRes = `🛡️ Você enfrentou um boss secreto e venceu! +${reward} coins, +30 XP.`
-      } else {
-        const loss = Math.min(u.coins||0, 80)
-        u.coins = (u.coins||0)-loss
-        textRes = `💀 Você encontrou um boss secreto e escapou por pouco. Perdeu ${loss} coins.`
-      }
+    let textRes = ''
+    if (isBoss){
+      const bossPower = 45, bossDefense = 25
+      if (power + 10 + Math.floor(calcPrecision(u)*10) > bossPower){
+              const reward = 150 + Math.floor(Math.random()*120)
+        u.coins = (u.coins||0)+reward
+        u.xp = (u.xp||0)+30
+        u.bossesDefeated = (u.bossesDefeated||0)+1
+        textRes = `🛡️ Você enfrentou um boss secreto e venceu! +${reward} coins, +30 XP.`
+      } else {
+        const loss = Math.min(u.coins||0, 80)
+        u.coins = (u.coins||0)-loss
+        textRes = `💀 Você encontrou um boss secreto e escapou por pouco. Perdeu ${loss} coins.`
+      }
   } else if (foundHiddenDungeon){
     const monsters = 1 + Math.floor(Math.random()*3)
     const dungeonPower = 22 + monsters * 10 + Math.floor(Math.random()*12)
@@ -1807,48 +1808,48 @@ chegue no meu nivel." — Satoru 🤭
       u.xp = (u.xp||0) + 8
       textRes = `💥 Você achou uma masmorra escondida com ${monsters} monstro(s), mas perdeu a luta e fugiu. Perdeu ${loss} coins e ganhou +8 XP por sobreviver.`
     }
-    } else {
-      const rewardBase = 40 + Math.floor(Math.random()*80 + power/2)
+    } else {
+      const rewardBase = 40 + Math.floor(Math.random()*80 + power/2)
       const reward = Math.floor(rewardBase * (1 + Math.min(boost,1)))
-      u.coins = (u.coins||0)+reward
-      u.materials.pedra = (u.materials.pedra||0) + Math.floor(Math.random()*3+1)
-      u.xp = (u.xp||0)+18
+      u.coins = (u.coins||0)+reward
+      u.materials.pedra = (u.materials.pedra||0) + Math.floor(Math.random()*3+1)
+      u.xp = (u.xp||0)+18
     textRes = `🧭 Exploração completa! Ganhou ${reward} coins, +18 XP e materiais.`
-    }
-    u.explores = (u.explores||0)+1
-    u.cooldowns.explorar = now + 120*1000
-    await saveDB()
-    await sock.sendMessage(chatId, { text: textRes }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
-  if (cmd==='masmorra'){
-    const u = await getUser(sender); const now = Date.now(); u.cooldowns ||= {}
-    if ((u.cooldowns.masmorra||0) > now){ await sock.sendMessage(chatId, { text:`Você já entrou na masmorra recentemente. Tente em ${Math.ceil((u.cooldowns.masmorra-now)/1000)}s.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const difficulty = 18 + Math.floor(Math.random()*20)
-    const score = calcPower(u) + Math.floor(Math.random()*20) + Math.round(calcResistance(u)*10)
-    let result=''
-    if (score > difficulty){
-      const reward = 80 + Math.floor(Math.random()*140)
-      u.coins = (u.coins||0) + reward
-      u.materials.erva = (u.materials.erva||0) + 1
-      u.xp = (u.xp||0)+22
-      result = `🏹 Você venceu a masmorra! Ganhou ${reward} coins e ervas.`
-    } else {
-      const loss = Math.min(u.coins||0, 60)
-      u.coins = (u.coins||0) - loss
-      result = `⚔️ Você perdeu na masmorra e fugiu ferido. Perdeu ${loss} coins.`
-    }
-    u.cooldowns.masmorra = now + 180*1000
-    await saveDB()
-    await sock.sendMessage(chatId, { text: result }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
+    }
+    u.explores = (u.explores||0)+1
+    u.cooldowns.explorar = now + 120*1000
+    await saveDB()
+    await sock.sendMessage(chatId, { text: textRes }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+  if (cmd==='masmorra'){
+    const u = await getUser(sender); const now = Date.now(); u.cooldowns ||= {}
+    if ((u.cooldowns.masmorra||0) > now){ await sock.sendMessage(chatId, { text:`Você já entrou na masmorra recentemente. Tente em ${Math.ceil((u.cooldowns.masmorra-now)/1000)}s.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const difficulty = 18 + Math.floor(Math.random()*20)
+    const score = calcPower(u) + Math.floor(Math.random()*20) + Math.round(calcResistance(u)*10)
+    let result=''
+    if (score > difficulty){
+      const reward = 80 + Math.floor(Math.random()*140)
+      u.coins = (u.coins||0) + reward
+      u.materials.erva = (u.materials.erva||0) + 1
+      u.xp = (u.xp||0)+22
+      result = `🏹 Você venceu a masmorra! Ganhou ${reward} coins e ervas.`
+    } else {
+      const loss = Math.min(u.coins||0, 60)
+      u.coins = (u.coins||0) - loss
+      result = `⚔️ Você perdeu na masmorra e fugiu ferido. Perdeu ${loss} coins.`
+    }
+    u.cooldowns.masmorra = now + 180*1000
+    await saveDB()
+    await sock.sendMessage(chatId, { text: result }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
 
-  if (cmd==='profissao' || cmd==='profissoes' || cmd==='job'){
-    const q = arg.join(' ').trim().toLowerCase()
-    if (!q){
+  if (cmd==='profissao' || cmd==='profissoes' || cmd==='job'){
+    const q = arg.join(' ').trim().toLowerCase()
+    if (!q){
       await sock.sendMessage(chatId, { text:`💼 ㅤ   ▬▬▬ㅤ
 GOJO — ESCOLHA SUA CARREIRA
 ㅤ 👁️👁️ㅤ  "Trabalhe enquanto eu como doces."  ㅤ .
@@ -1971,26 +1972,26 @@ GOJO — CLASSES & ATRIBUTOS
     return
   }
 
-    const prof = findProfession(q)
-    if (!prof){
-      await sock.sendMessage(chatId, { text:'Profissão não encontrada. Use .profissao ou .profissoes para ver as opções.' }, { quoted: msg })
-      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
-      return
-    }
-    const u = await getUser(sender)
-    u.job = prof.id
-    await saveDB()
-    await sock.sendMessage(chatId, { text:`✅ Você agora é ${prof.name}! Salário: ${prof.salary} coins. Bônus: +${prof.powerBoost} ATK, +${prof.defenseBoost} DEF.` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
+    const prof = findProfession(q)
+    if (!prof){
+      await sock.sendMessage(chatId, { text:'Profissão não encontrada. Use .profissao ou .profissoes para ver as opções.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+    const u = await getUser(sender)
+    u.job = prof.id
+    await saveDB()
+    await sock.sendMessage(chatId, { text:`✅ Você agora é ${prof.name}! Salário: ${prof.salary} coins. Bônus: +${prof.powerBoost} ATK, +${prof.defenseBoost} DEF.` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
 
-  if (cmd==='salario' || cmd==='payday'){
-    const u = await getUser(sender)
-    const prof = getProfession(u)
-    if (!prof){ await sock.sendMessage(chatId, { text:'Você ainda não escolheu uma profissão. Use .profissao <nome> ou .profissoes <nome> para escolher uma.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const now = Date.now(); const next = (u.lastSalaryAt||0) + 60*60*1000
-    if (now < next){ await sock.sendMessage(chatId, { text:`⏳ Salário disponível em ${Math.ceil((next-now)/60000)} minutos.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+  if (cmd==='salario' || cmd==='payday'){
+    const u = await getUser(sender)
+    const prof = getProfession(u)
+    if (!prof){ await sock.sendMessage(chatId, { text:'Você ainda não escolheu uma profissão. Use .profissao <nome> ou .profissoes <nome> para escolher uma.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const now = Date.now(); const next = (u.lastSalaryAt||0) + 60*60*1000
+    if (now < next){ await sock.sendMessage(chatId, { text:`⏳ Salário disponível em ${Math.ceil((next-now)/60000)} minutos.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
     const salaryBoost = (u.items||[]).reduce((s,it)=>s + (it.salarioBoost||0),0)
     const salary = Math.floor(prof.salary * (1 + Math.min(salaryBoost,1)))
     u.coins = (u.coins||0) + salary
@@ -2278,56 +2279,56 @@ ${names}` }, { quoted: msg })
   }
   if (cmd==='rankprof' || cmd==='rankprofissao'){
     const data = db_mod.data
-    const map={}; for(const [id,u] of Object.entries(data.users||{})){ if(!u.job) continue; map[u.job]=(map[u.job]||0)+(u.coins||0) }    const list = Object.entries(map).sort((a,b)=>b[1]-a[1]).map(([job,coins],i)=>`${i+1}. ${job} — ${coins}`).join('\n') || '—'
-    await sock.sendMessage(chatId, { text:`👔 RANK POR PROFISSÃO\n${list}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
-  }
-  if (cmd==='rankghost' || cmd==='rankinativo'){
-    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
-    const meta = await sock.groupMetadata(chatId)
-    const members = meta.participants.map(p=>p.id)
-    const users = Object.entries(db_mod.data.users||{}).filter(([id])=>members.includes(id) && !isNewbie(db_mod.data.users[id]))
-    users.sort((a,b)=> (a[1].lastActive||0) - (b[1].lastActive||0))
-    const body = users.slice(0,5).map(([id,u],i)=>`${i+1}. ${id} — ${timeSince(u.lastActive||0)} inativo`).join('\n') || 'Nenhum usuário apto.'
-    await sock.sendMessage(chatId, { text:`👻 RANK GHOST\n${body}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
-  }
-  if (cmd==='inativos' || cmd==='topinativos'){
-    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
-    const meta = await sock.groupMetadata(chatId)
-    const members = meta.participants.map(p=>p.id)
-    const users = Object.entries(db_mod.data.users||{}).filter(([id])=>members.includes(id) && !isNewbie(db_mod.data.users[id]))
-    users.sort((a,b)=> (a[1].lastActive||0) - (b[1].lastActive||0))
-    const body = users.slice(0,3).map(([id,u],i)=>`${i+1}. ${id} — ${timeSince(u.lastActive||0)}`).join('\n') || 'Nenhum usuário apto.'
-    await sock.sendMessage(chatId, { text:`🛌 TOP 3 INATIVOS\n${body}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
-  }
-  if (cmd==='ship' || cmd==='love' || cmd==='casal' || cmd==='kiss'){
-    const targetA = arg[0]||''
-    const targetB = arg[1]||''
-    if (!targetA || !targetB){ await sock.sendMessage(chatId, { text:'Use: .ship @user1 @user2' }, { quoted: msg }); return }
-    const score = Math.floor(Math.random()*101)
-    const hearts = score > 80 ? '💖💞' : score > 50 ? '💘' : '💔'
-    await sock.sendMessage(chatId, { text:`${cmd.toUpperCase()} ${targetA} + ${targetB}\nCompatibilidade: ${score}% ${hearts}` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
-  if (['chutar','matar','tapa','murro','xplodir'].includes(cmd)){
-    const target = arg[0]||''
-    const message = arg.slice(1).join(' ').trim()
-    if (!target || !target.startsWith('@')){
-      await sock.sendMessage(chatId, { text:`Use: .${cmd} @user <mensagem>` }, { quoted: msg }); return
-    }
-    const verbs = {
-      chutar: 'chutou',
-      matar: 'matou',
-      tapa: 'deu um tapa em',
-      murro: 'deu um murro em',
-      xplodir: 'explodiu'
-    }
-    const action = verbs[cmd] || cmd
-    const replyText = `💥 Você ${action} ${target}!${message ? `\n📝 Mensagem: ${message}` : ''}`
-    await sock.sendMessage(chatId, { text: replyText }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
+    const map={}; for(const [id,u] of Object.entries(data.users||{})){ if(!u.job) continue; map[u.job]=(map[u.job]||0)+(u.coins||0) }    const list = Object.entries(map).sort((a,b)=>b[1]-a[1]).map(([job,coins],i)=>`${i+1}. ${job} — ${coins}`).join('\n') || '—'
+    await sock.sendMessage(chatId, { text:`👔 RANK POR PROFISSÃO\n${list}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
+  }
+  if (cmd==='rankghost' || cmd==='rankinativo'){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
+    const meta = await sock.groupMetadata(chatId)
+    const members = meta.participants.map(p=>p.id)
+    const users = Object.entries(db_mod.data.users||{}).filter(([id])=>members.includes(id) && !isNewbie(db_mod.data.users[id]))
+    users.sort((a,b)=> (a[1].lastActive||0) - (b[1].lastActive||0))
+    const body = users.slice(0,5).map(([id,u],i)=>`${i+1}. ${id} — ${timeSince(u.lastActive||0)} inativo`).join('\n') || 'Nenhum usuário apto.'
+    await sock.sendMessage(chatId, { text:`👻 RANK GHOST\n${body}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
+  }
+  if (cmd==='inativos' || cmd==='topinativos'){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
+    const meta = await sock.groupMetadata(chatId)
+    const members = meta.participants.map(p=>p.id)
+    const users = Object.entries(db_mod.data.users||{}).filter(([id])=>members.includes(id) && !isNewbie(db_mod.data.users[id]))
+    users.sort((a,b)=> (a[1].lastActive||0) - (b[1].lastActive||0))
+    const body = users.slice(0,3).map(([id,u],i)=>`${i+1}. ${id} — ${timeSince(u.lastActive||0)}`).join('\n') || 'Nenhum usuário apto.'
+    await sock.sendMessage(chatId, { text:`🛌 TOP 3 INATIVOS\n${body}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
+  }
+  if (cmd==='ship' || cmd==='love' || cmd==='casal' || cmd==='kiss'){
+    const targetA = arg[0]||''
+    const targetB = arg[1]||''
+    if (!targetA || !targetB){ await sock.sendMessage(chatId, { text:'Use: .ship @user1 @user2' }, { quoted: msg }); return }
+    const score = Math.floor(Math.random()*101)
+    const hearts = score > 80 ? '💖💞' : score > 50 ? '💘' : '💔'
+    await sock.sendMessage(chatId, { text:`${cmd.toUpperCase()} ${targetA} + ${targetB}\nCompatibilidade: ${score}% ${hearts}` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+  if (['chutar','matar','tapa','murro','xplodir'].includes(cmd)){
+    const target = arg[0]||''
+    const message = arg.slice(1).join(' ').trim()
+    if (!target || !target.startsWith('@')){
+      await sock.sendMessage(chatId, { text:`Use: .${cmd} @user <mensagem>` }, { quoted: msg }); return
+    }
+    const verbs = {
+      chutar: 'chutou',
+      matar: 'matou',
+      tapa: 'deu um tapa em',
+      murro: 'deu um murro em',
+      xplodir: 'explodiu'
+    }
+    const action = verbs[cmd] || cmd
+    const replyText = `💥 Você ${action} ${target}!${message ? `\n📝 Mensagem: ${message}` : ''}`
+    await sock.sendMessage(chatId, { text: replyText }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
   if (cmd==='muta' || cmd==='desmut'){
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
@@ -2344,20 +2345,20 @@ ${names}` }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
-  if (cmd==='ban'){
-    if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
-    const meta = await sock.groupMetadata(chatId)
-    const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem banir.' }, { quoted: msg }); return }
-    const num = arg[0] && arg[0].replace(/[^0-9]/g,'')
-    if (!num){ await sock.sendMessage(chatId, { text:'Use: .ban <numero_com_ddd>' }, { quoted: msg }); return }
-    await sock.groupParticipantsUpdate(chatId, [toNumberJid(num)], 'remove')
-    await sock.sendMessage(chatId, { text:`Usuário ${num} removido do grupo.` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
-  if (cmd==='plano'){
-    if (!isGroup){ await sock.sendMessage(chatId, { text:'Esse recurso é para grupos.' }, { quoted: msg }); return }
+  if (cmd==='ban'){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
+    const meta = await sock.groupMetadata(chatId)
+    const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
+    if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem banir.' }, { quoted: msg }); return }
+    const num = arg[0] && arg[0].replace(/[^0-9]/g,'')
+    if (!num){ await sock.sendMessage(chatId, { text:'Use: .ban <numero_com_ddd>' }, { quoted: msg }); return }
+    await sock.groupParticipantsUpdate(chatId, [toNumberJid(num)], 'remove')
+    await sock.sendMessage(chatId, { text:`Usuário ${num} removido do grupo.` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+  if (cmd==='plano'){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Esse recurso é para grupos.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
     if (!admins.includes(sender)){
@@ -2365,48 +2366,48 @@ ${names}` }, { quoted: msg })
       await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3')
       return
     }
-    const u = await getUser(sender); const settings = await getGroupSettings(chatId)
-    if (arg[0]==='ativar'){
-      if ((u.coins||0) < settings.planPrice){ await sock.sendMessage(chatId, { text:`Custo do plano: ${settings.planPrice} coins. Você precisa de mais ${settings.planPrice-(u.coins||0)}.` }, { quoted: msg }); return }
-      u.coins -= settings.planPrice; settings.premium = true; await saveDB()
-      await sock.sendMessage(chatId, { text:`Plano premium ativado para este grupo! Comandos avançados liberados.` }, { quoted: msg })
-      return
-    }
-    const status = settings.premium ? 'Ativo' : 'Inativo'
-    await sock.sendMessage(chatId, { text:`Plano de grupo: ${status}\nPreço: ${settings.planPrice} coins\nUse .plano ativar para ativar se você for admin e tiver coins.` }, { quoted: msg })
-    return
-  }
-  if (cmd==='setwelcome' || cmd==='setbye'){
-    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use apenas em grupos.' }, { quoted: msg }); return }
-    const meta = await sock.groupMetadata(chatId)
-    const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Somente admin pode configurar.' }, { quoted: msg }); return }
-    if (!groupSettings.premium){ await sock.sendMessage(chatId, { text:'Esse recurso exige plano premium. Ative com .plano ativar.' }, { quoted: msg }); return }
-    const type = cmd==='setwelcome' ? 'welcome' : 'bye'
-    const textValue = arg.join(' ').trim() || ''
-    let imageBase64 = null
-    const quoted = msg.message.extendedTextMessage?.contextInfo?.quotedMessage
-    if (quoted?.imageMessage){
-      const buff = await downloadMediaBuffer({ key:{ ...msg.key, id: msg.message.extendedTextMessage.contextInfo.stanzaId }, message: { imageMessage: quoted.imageMessage } }, 'buffer')
-      imageBase64 = buff.toString('base64')
-    }
-    const data = {}
-    data[`${type}Message`] = textValue || (type==='welcome' ? 'Bem-vindo ao grupo!' : 'Saiu do grupo. Até logo!')
-    data[`${type}Image`] = imageBase64 || groupSettings[`${type}Image`]
-    await updateGroupSettings(chatId, data)
-    await sock.sendMessage(chatId, { text:`Mensagem de ${type} configurada.` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
+    const u = await getUser(sender); const settings = await getGroupSettings(chatId)
+    if (arg[0]==='ativar'){
+      if ((u.coins||0) < settings.planPrice){ await sock.sendMessage(chatId, { text:`Custo do plano: ${settings.planPrice} coins. Você precisa de mais ${settings.planPrice-(u.coins||0)}.` }, { quoted: msg }); return }
+      u.coins -= settings.planPrice; settings.premium = true; await saveDB()
+      await sock.sendMessage(chatId, { text:`Plano premium ativado para este grupo! Comandos avançados liberados.` }, { quoted: msg })
+      return
+    }
+    const status = settings.premium ? 'Ativo' : 'Inativo'
+    await sock.sendMessage(chatId, { text:`Plano de grupo: ${status}\nPreço: ${settings.planPrice} coins\nUse .plano ativar para ativar se você for admin e tiver coins.` }, { quoted: msg })
+    return
+  }
+  if (cmd==='setwelcome' || cmd==='setbye'){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use apenas em grupos.' }, { quoted: msg }); return }
+    const meta = await sock.groupMetadata(chatId)
+    const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
+    if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Somente admin pode configurar.' }, { quoted: msg }); return }
+    if (!groupSettings.premium){ await sock.sendMessage(chatId, { text:'Esse recurso exige plano premium. Ative com .plano ativar.' }, { quoted: msg }); return }
+    const type = cmd==='setwelcome' ? 'welcome' : 'bye'
+    const textValue = arg.join(' ').trim() || ''
+    let imageBase64 = null
+    const quoted = msg.message.extendedTextMessage?.contextInfo?.quotedMessage
+    if (quoted?.imageMessage){
+      const buff = await downloadMediaBuffer({ key:{ ...msg.key, id: msg.message.extendedTextMessage.contextInfo.stanzaId }, message: { imageMessage: quoted.imageMessage } }, 'buffer')
+      imageBase64 = buff.toString('base64')
+    }
+    const data = {}
+    data[`${type}Message`] = textValue || (type==='welcome' ? 'Bem-vindo ao grupo!' : 'Saiu do grupo. Até logo!')
+    data[`${type}Image`] = imageBase64 || groupSettings[`${type}Image`]
+    await updateGroupSettings(chatId, data)
+    await sock.sendMessage(chatId, { text:`Mensagem de ${type} configurada.` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
 
-  if (cmd==='rankgay'){ await sock.sendMessage(chatId, { text:'Não vou criar comandos que avaliem alguém pela orientação sexual. Use `.rank`, `.rankbanco`, `.rankprof` ou as brincadeiras `.rankpau` / `.rankgostosos`.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-  if (cmd==='rankpau' || cmd==='rankgostosos'){
-    const alvo=arg[0]||''; const pct=Math.floor(Math.random()*101)
-    let joke=''; if(pct>80) joke='Absurdo. Já pode abrir fã clube.'; else if(pct>50) joke='Respeitável, tá na média alta.'; else if(pct>20) joke='É… dá pra melhorar, digamos.'; else joke='Ih… deixa pra próxima, campeão.'
-    await sock.sendMessage(chatId, { text:`${cmd.toUpperCase()} ${alvo}\n${pct}% — ${joke}` }, { quoted: msg })
-    await playAudioIfExists(chatId, pct<20 ? '(5) Você é Fraco.mp3' : '(2) Execução de Comandos.mp3')
-    return
-  }
+  if (cmd==='rankgay'){ await sock.sendMessage(chatId, { text:'Não vou criar comandos que avaliem alguém pela orientação sexual. Use `.rank`, `.rankbanco`, `.rankprof` ou as brincadeiras `.rankpau` / `.rankgostosos`.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+  if (cmd==='rankpau' || cmd==='rankgostosos'){
+    const alvo=arg[0]||''; const pct=Math.floor(Math.random()*101)
+    let joke=''; if(pct>80) joke='Absurdo. Já pode abrir fã clube.'; else if(pct>50) joke='Respeitável, tá na média alta.'; else if(pct>20) joke='É… dá pra melhorar, digamos.'; else joke='Ih… deixa pra próxima, campeão.'
+    await sock.sendMessage(chatId, { text:`${cmd.toUpperCase()} ${alvo}\n${pct}% — ${joke}` }, { quoted: msg })
+    await playAudioIfExists(chatId, pct<20 ? '(5) Você é Fraco.mp3' : '(2) Execução de Comandos.mp3')
+    return
+  }
 
   if (cmd==='dado'){
     const n = Math.floor(Math.random() * 6) + 1
@@ -2476,6 +2477,26 @@ ${names}` }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
+  if (cmd==='todos' || cmd==='marcartodos' || cmd==='tagall'){
+    if (!isGroup){
+      await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+    const meta = await sock.groupMetadata(chatId)
+    const admins = meta.participants.filter(p => p.admin).map(p => p.id)
+    if (!admins.includes(sender)){
+      await sock.sendMessage(chatId, { text:'Apenas administradores podem marcar todos.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3')
+      return
+    }
+    const mentions = meta.participants.map(p => p.id)
+    const header = arg.join(' ').trim() || '📣 Atenção, geral!'
+    const lines = mentions.map(jid => `@${jidToNumber(jid)}`)
+    await sock.sendMessage(chatId, { text: `${header}\n\n${lines.join('\n')}`, mentions }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
   if (cmd==='mimimi'){
     const phrase = arg.join(' ').trim()
     if (!phrase){ await sock.sendMessage(chatId, { text:'Use: .mimimi <texto>' }, { quoted: msg }); return }
@@ -2497,55 +2518,55 @@ ${names}` }, { quoted: msg })
     return
   }
 
-  // Games
-  if (cmd==='rps'){ await handleRps(text.slice(1), sock, chatId, msg); return }
-  if (cmd==='forca'){ await handleForca(text.slice(1), sock, chatId, msg); return }
+  // Games
+  if (cmd==='rps'){ await handleRps(text.slice(1), sock, chatId, msg); return }
+  if (cmd==='forca'){ await handleForca(text.slice(1), sock, chatId, msg); return }
 
-  // Store
-  if (cmd==='loja'){
-    const cat=(arg[0]||'').toLowerCase()
-    const valid=['util','decor','casa','armas','armaduras','materiais']
-  if (!cat){
-    await sock.sendMessage(chatId, { text:'🛒 Categorias da loja:\n• util\n• decor\n• casa\n• armas\n• armaduras\n• materiais\n\nUse: .loja <categoria>' }, { quoted: msg })
+  // Store
+  if (cmd==='loja'){
+  const items = (await import('./config.js')).STORE.itens || []
+  if (!items.length){
+  await sock.sendMessage(chatId, { text:'Loja vazia no momento.' }, { quoted: msg })
+  await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+  return
+  }
+  const list = items.map(i=>`${i.id}. ${i.name} (${i.price})`).join('\n')
+  await sock.sendMessage(chatId, { text:`🛒 Loja oficial\n${list}\nUse: .buy <id>` }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
-  if (!valid.includes(cat)){ await sock.sendMessage(chatId, { text:'Categoria inválida.\nUse: .loja util|decor|casa|armas|armaduras|materiais' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const arr = (await import('./config.js')).STORE[cat]
-    const list = arr.map(i=>`${i.id}. ${i.name} (${i.price})`).join('\n')
-    await sock.sendMessage(chatId, { text:`🛒 Loja ${cat}\n${list}\nUse: .buy ${cat} <id>` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
-  if (cmd==='buy'){
-    const cat=(arg[0]||'').toLowerCase(); const id=parseInt(arg[1]||'0',10)
-    const arr = (await import('./config.js')).STORE[cat]||[]; const sel=arr.find(i=>i.id===id)
-    if (!sel){ await sock.sendMessage(chatId, { text:'Use: .buy <categoria> <id>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const u=await getUser(sender)
-    if ((u.coins||0) < sel.price){ await sock.sendMessage(chatId, { text:'Moedas insuficientes.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    u.coins -= sel.price; u.items=u.items||[]; u.items.push({ cat, name: sel.name, boost: sel.boost||0, power: sel.power||0, defense: sel.defense||0 }); await saveDB()
-    await sock.sendMessage(chatId, { text:`Comprou ${sel.name} por ${sel.price}.` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
-  if (cmd==='inventario'){
-    const u=await getUser(sender)
-    const inv=(u.items||[]).map((x,i)=>`${i+1}. ${x.cat}:${x.name}${x.power?` (ATK ${x.power})`:''}${x.defense?` (DEF ${x.defense})`:''}`).join('\n') || 'Vazio.'
-    const materials = formatMaterials(u.materials)
-    await sock.sendMessage(chatId, { text:`🎒 Inventário\n${inv}\n\n🪨 Materiais\n${materials}` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
+  if (cmd==='buy'){
+  const first = (arg[0]||'').toLowerCase()
+  const legacyCategories = ['util','decor','casa','armas','armaduras','materiais','itens']
+  const id = legacyCategories.includes(first) ? parseInt(arg[1]||'0',10) : parseInt(arg[0]||'0',10)
+  const items = (await import('./config.js')).STORE.itens || []
+  const sel = items.find(i=>i.id===id)
+  if (!sel){ await sock.sendMessage(chatId, { text:'Use: .buy <id>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const u=await getUser(sender)
+    if ((u.coins||0) < sel.price){ await sock.sendMessage(chatId, { text:'Moedas insuficientes.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+  u.coins -= sel.price; u.items=u.items||[]; u.items.push({ cat: 'itens', name: sel.name, boost: sel.boost||0, power: sel.power||0, defense: sel.defense||0 }); await saveDB()
+    await sock.sendMessage(chatId, { text:`Comprou ${sel.name} por ${sel.price}.` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+  if (cmd==='inventario'){
+    const u=await getUser(sender)
+    const inv=(u.items||[]).map((x,i)=>`${i+1}. ${x.cat}:${x.name}${x.power?` (ATK ${x.power})`:''}${x.defense?` (DEF ${x.defense})`:''}`).join('\n') || 'Vazio.'
+    const materials = formatMaterials(u.materials)
+    await sock.sendMessage(chatId, { text:`🎒 Inventário\n${inv}\n\n🪨 Materiais\n${materials}` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
 
-  // Audio/Video
-  if (cmd==='sticker'){
+  // Audio/Video
+  if (cmd==='sticker'){
     const ctx = msg.message?.extendedTextMessage?.contextInfo || {}
     const quotedImage = getQuotedImageMessage(msg)
-    if (!quotedImage){
-      await sock.sendMessage(chatId, { text:'Use: responda uma imagem com .sticker' }, { quoted: msg })
-      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
-      return
-    }
+    if (!quotedImage){
+      await sock.sendMessage(chatId, { text:'Use: responda uma imagem com .sticker' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
     if (!accessGranted){
       await sendBlockedReactionImage(chatId, msg)
       await sock.sendMessage(chatId, { text:`🛑 ㅤ   ▬▬▬ㅤ
@@ -2584,23 +2605,23 @@ SATORU GOJO — BLOQUEADO
         await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
         return
       }
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
 
-  if (cmd==='audio'){
-    const link=arg[0]||''
-    if (link){ if (/youtube\.com|youtu\.be/.test(link)) await audioFromYouTube(link, chatId); else await audioFromGeneric(link, chatId); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return }
-    const ctx=msg.message?.extendedTextMessage?.contextInfo; const quoted=ctx?.quotedMessage?.videoMessage
-    if (quoted){ const q={ key:{...msg.key, id: ctx.stanzaId}, message:{ videoMessage: quoted } }; await extractAudioFromVideoMessage(q, chatId); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return }
-    await sock.sendMessage(chatId, { text:'Use: .audio <link> ou responda um VÍDEO com .audio' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return
-  }
-  if (cmd==='video'){
-    const link=arg[0]||''
-    if (!link){ await sock.sendMessage(chatId, { text:'Use: .video <link YouTube/TikTok/Pinterest>\nPinterest grátis: envie o link de board para usar RSS.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    if (/youtube\.com|youtu\.be/.test(link)) await videoFromYouTube(link, chatId); else await videoFromGeneric(link, chatId)
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
-  }
+  if (cmd==='audio'){
+    const link=arg[0]||''
+    if (link){ if (/youtube\.com|youtu\.be/.test(link)) await audioFromYouTube(link, chatId); else await audioFromGeneric(link, chatId); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return }
+    const ctx=msg.message?.extendedTextMessage?.contextInfo; const quoted=ctx?.quotedMessage?.videoMessage
+    if (quoted){ const q={ key:{...msg.key, id: ctx.stanzaId}, message:{ videoMessage: quoted } }; await extractAudioFromVideoMessage(q, chatId); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return }
+    await sock.sendMessage(chatId, { text:'Use: .audio <link> ou responda um VÍDEO com .audio' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return
+  }
+  if (cmd==='video'){
+    const link=arg[0]||''
+    if (!link){ await sock.sendMessage(chatId, { text:'Use: .video <link YouTube/TikTok/Pinterest>\nPinterest grátis: envie o link de board para usar RSS.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    if (/youtube\.com|youtu\.be/.test(link)) await videoFromYouTube(link, chatId); else await videoFromGeneric(link, chatId)
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
+  }
   if (cmd==='tiktok' || cmd==='tt'){
     await tiktokCommand(sock, msg, arg)
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
@@ -2624,45 +2645,48 @@ SATORU GOJO — BLOQUEADO
     return
   }
 
-  // Admin-o
-  if (['pcadd','pclist','pcrmv'].includes(cmd)){
-    if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    if (!groupSettings?.premium){ await sock.sendMessage(chatId, { text:'Esse recurso exige plano premium. Ative com .plano ativar.' }, { quoted: msg }); return }
-    const meta = await sock.groupMetadata(chatId)
-    const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    const isAdmin = admins.includes(sender)
-    if (!isAdmin){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar este comando.' }, { quoted: msg }); await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3'); return }
+  // Admin-o
+  if (['pcadd','pclist','pcrmv'].includes(cmd)){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    if (!groupSettings?.premium){ await sock.sendMessage(chatId, { text:'Esse recurso exige plano premium. Ative com .plano ativar.' }, { quoted: msg }); return }
+    const meta = await sock.groupMetadata(chatId)
+    const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
+    const isAdmin = admins.includes(sender)
+    if (!isAdmin){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar este comando.' }, { quoted: msg }); await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3'); return }
 
-    if (cmd==='pcadd'){
-      const raw = arg.join(' ').split('|')
-      if (raw.length<2){ await sock.sendMessage(chatId, { text:'Use: .pcadd <gatilho> | <mensagem>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-      const trigger = raw[0].trim().toLowerCase().replace(/^\./,''); const message = raw.slice(1).join('|').trim()
-      if (!trigger||!message){ await sock.sendMessage(chatId, { text:'Use: .pcadd <gatilho> | <mensagem>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-      const r = await addGroupCustom(chatId, sender, trigger, message)
-      if (!r.ok){ await sock.sendMessage(chatId, { text:`Falhou: ${r.reason}` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3') }
-      else { await sock.sendMessage(chatId, { text:`Comando .${trigger} criado.` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3') }
-      return
-    }
-    if (cmd==='pclist'){
-      const list = await listGroupCustom(chatId)
-      const body = list.length ? list.map((c,i)=>`${i+1}. .${c.trigger}`).join('\n') : 'Nenhum.'
-      await sock.sendMessage(chatId, { text:`🧩 Comandos personalizados do grupo:\n${body}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-      return
-    }
-    if (cmd==='pcrmv'){
-      const trigger=(arg[0]||'').toLowerCase().replace(/^\./,'')
-      if (!trigger){ await sock.sendMessage(chatId, { text:'Use: .pcrmv <gatilho>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-      const meta2 = await sock.groupMetadata(chatId)
-      const admins2 = meta2.participants.filter(p=>p.admin).map(p=>p.id)
-      const isGroupAdmin = admins2.includes(sender)
-      const r = await removeGroupCustom(chatId, sender, trigger, isGroupAdmin)
-      if (!r.ok){ await sock.sendMessage(chatId, { text:`Falhou: ${r.reason}` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3') }
-      else { await sock.sendMessage(chatId, { text:`Comando .${trigger} removido.` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3') }
-      return
-    }
-  }
+    if (cmd==='pcadd'){
+      const raw = arg.join(' ').split('|')
+      if (raw.length<2){ await sock.sendMessage(chatId, { text:'Use: .pcadd <gatilho> | <mensagem>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+      const trigger = raw[0].trim().toLowerCase().replace(/^\./,''); const message = raw.slice(1).join('|').trim()
+      if (!trigger||!message){ await sock.sendMessage(chatId, { text:'Use: .pcadd <gatilho> | <mensagem>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+      const r = await addGroupCustom(chatId, sender, trigger, message)
+      if (!r.ok){ await sock.sendMessage(chatId, { text:`Falhou: ${r.reason}` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3') }
+      else { await sock.sendMessage(chatId, { text:`Comando .${trigger} criado.` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3') }
+      return
+    }
+    if (cmd==='pclist'){
+      const list = await listGroupCustom(chatId)
+      const body = list.length ? list.map((c,i)=>`${i+1}. .${c.trigger}`).join('\n') : 'Nenhum.'
+      await sock.sendMessage(chatId, { text:`🧩 Comandos personalizados do grupo:\n${body}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+      return
+    }
+    if (cmd==='pcrmv'){
+      const trigger=(arg[0]||'').toLowerCase().replace(/^\./,'')
+      if (!trigger){ await sock.sendMessage(chatId, { text:'Use: .pcrmv <gatilho>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+      const meta2 = await sock.groupMetadata(chatId)
+      const admins2 = meta2.participants.filter(p=>p.admin).map(p=>p.id)
+      const isGroupAdmin = admins2.includes(sender)
+      const r = await removeGroupCustom(chatId, sender, trigger, isGroupAdmin)
+      if (!r.ok){ await sock.sendMessage(chatId, { text:`Falhou: ${r.reason}` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3') }
+      else { await sock.sendMessage(chatId, { text:`Comando .${trigger} removido.` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3') }
+      return
+    }
+  }
 
-  
+  
 await sendDebocheWarning(chatId, msg, 'invalid')
-  await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+  await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
 })
+
+
+

@@ -36,3 +36,18 @@
 ## Observações
 - Requer Node 18+ (tem `fetch` nativo) e usa `ffmpeg-static` embutido.
 - Este bot usa a sessão do seu número via WhatsApp Web (não oficial). Para produção, prefira Cloud API.
+
+## Deploy no DigitalOcean (App Platform / Droplet)
+- Build Command: `npm ci`
+- Run Command: `npm run start:resiliente`
+- Variáveis de ambiente recomendadas:
+   - `NODE_ENV=production`
+   - `AUTH_DIR=./auth`
+   - `DB_FILE=./db.json`
+   - `DOWNLOAD_CONFIG_FILE=./download.config.json`
+   - `PAIRING_NUMBER=55DDDNUMERO` (opcional, para pareamento sem QR)
+   - `GEMINI_API_KEY=...` (se usar IA)
+
+### Importante sobre persistência
+- Em App Platform, o filesystem pode ser efêmero entre deploys/restarts.
+- Se quiser manter sessão e banco sem perder (`auth` e `db.json`), prefira Droplet com volume, ou serviço com storage persistente.

@@ -1,8 +1,0 @@
-services:
-  - type: worker
-    name: satoru-bot
-    runtime: node
-    plan: free
-    buildCommand: npm ci
-    startCommand: npm run start:resiliente
-    autoDeploy: true

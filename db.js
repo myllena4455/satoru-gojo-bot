@@ -1,7 +1,8 @@
 import { Low } from 'lowdb'
 import { JSONFile } from 'lowdb/node'
 
-const adapter = new JSONFile('db.json')
+const DB_FILE = process.env.DB_FILE || 'db.json'
+const adapter = new JSONFile(DB_FILE)
 const db = new Low(adapter, { users:{}, games:{}, scores:{}, custom:{}, groups:{}, clans:{} })
 
 async function safeWrite(retries = 5){
