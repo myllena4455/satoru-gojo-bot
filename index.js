@@ -1901,7 +1901,7 @@ GOJO — ESCOLHA SUA CARREIRA
     }
 
   if (cmd==='classe'){
-    const q = arg.join(' ').trim().toLowerCase()
+    const q = arg.join(' ').trim()
     if (!q){
       await sock.sendMessage(chatId, { text:`🪐 ㅤ   ▬▬▬ㅤ
 GOJO — CLASSES & ATRIBUTOS
@@ -1958,9 +1958,22 @@ GOJO — CLASSES & ATRIBUTOS
       await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
       return
     }
-    const sel = findClass(q) || CLASSES[parseInt(q,10)-1]
+    const numeric = q.match(/\d+/)?.[0]
+    const normalized = normalizeJobName(q)
+    const sel =
+      (numeric ? CLASSES[parseInt(numeric, 10) - 1] : null) ||
+      findClass(q) ||
+      CLASSES.find(c => normalizeJobName(c.name) === normalized || normalizeJobName(c.id) === normalized)
     if (!sel){
-      await sock.sendMessage(chatId, { text:'Classe inválida. Use .classe sem número para ver as opções.' }, { quoted: msg })
+      await sock.sendMessage(chatId, { text:`Classe inválida. Use .classe ou .classe 1 a 7.
+
+1. Guerreiro(a)
+2. Guardião(a)
+3. Ladrão(a)
+4. Arqueiro(a)
+5. Apostador(a)
+6. Lutador(a)
+7. Ninja` }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
     }
@@ -1972,7 +1985,7 @@ GOJO — CLASSES & ATRIBUTOS
     return
   }
 
-    const prof = findProfession(q)
+    const prof = findProfession(arg.join(' ').trim())
     if (!prof){
       await sock.sendMessage(chatId, { text:'Profissão não encontrada. Use .profissao ou .profissoes para ver as opções.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
