@@ -2025,20 +2025,6 @@ GOJO — CLASSES & ATRIBUTOS
     return
   }
 
-    const prof = findProfession(arg.join(' ').trim())
-    if (!prof){
-      await sock.sendMessage(chatId, { text:'Profissão não encontrada. Use .profissao ou .profissoes para ver as opções.' }, { quoted: msg })
-      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
-      return
-    }
-    const u = await getUser(sender)
-    u.job = prof.id
-    await saveDB()
-    await sock.sendMessage(chatId, { text:`✅ Você agora é ${prof.name}! Salário: ${prof.salary} coins. Bônus: +${prof.powerBoost} ATK, +${prof.defenseBoost} DEF.` }, { quoted: msg })
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
-  }
-
   if (cmd==='salario' || cmd==='payday'){
     const u = await getUser(sender)
     const prof = getProfession(u)
