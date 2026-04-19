@@ -2820,11 +2820,26 @@ bastante por todo esse grupo.” — Satoru 🤭
     }
     const target = toNumberJid(num)
     const cantadas = [
-      'Você não é domínio, mas expandiu meu coração.',
-      'Se beleza fosse energia amaldiçoada, você seria infinito.',
-      'Com você até cooldown passa rápido.',
-      'Nem o Gojo resiste quando você aparece no chat.',
-      'Você bugou meu sistema e eu nem quero patch.'
+      'Você não é técnica amaldiçoada, mas me deixou sem defesa.',
+      'Seu olhar acerta mais que meu Seis Olhos.',
+      'Se eu fosse te enfrentar, já tinha perdido de propósito.',
+      'Nem o infinito consegue manter você longe da minha mente.',
+      'Você apareceu no chat e meu coração entrou em modo boss final.',
+      'Se charme fosse poder, você já tinha virado grau especial.',
+      'Você não precisa de expansão de domínio. Já domina tudo.',
+      'Com você, até segunda-feira parece feriado.',
+      'Você é tipo loot lendário: raro e impossível de esquecer.',
+      'Só de te ver, meu sistema trava e eu nem quero correção.',
+      'Seu sorriso dá mais buff que qualquer item da loja.',
+      'Se isso for ilusão, não me acorda.',
+      'Você é a única missão que eu faço sem reclamar.',
+      'Te chamar de linda(o) é pouco. O certo era chamar de absurda(o).',
+      'Se eu ganhasse 1 coin por pensar em você, eu já comprava o universo.',
+      'Você tem cara de quem rouba atenção sem nem tentar.',
+      'Nem em 4K dá pra medir o quanto você é bonita(o).',
+      'Você não é bug, mas quebrou toda minha lógica.',
+      'Se perfeição tivesse nome de usuário, era o seu.',
+      'Você chegou e meu coração foi de AFK pra modo competitivo.'
     ]
     const cantada = pick(cantadas)
     const caption = `😏 ㅤ   ▬▬▬ㅤ
@@ -2854,7 +2869,23 @@ EXPANSÃO DE DOMÍNIO: SEDUÇÃO
 “Funcionou, né? Eu já sabia. Sou
 simplesmente o mais forte.” — Satoru 🤞
 ◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤`
-    await sendReactionImageCaption(chatId, msg, caption, [target])
+    try {
+      const cantadaImages = [
+        'cantada.jpg','cantada.jpeg','cantada.png','cantada.webp',
+        'cantada1.jpg','cantada1.jpeg','cantada2.jpg','cantada2.jpeg',
+        'reaction cantada.jpg','reaction cantada2.jpeg'
+      ]
+      const existing = cantadaImages.filter(name => fs.existsSync(path.join('./assets', name)))
+      if (!existing.length){
+        await sock.sendMessage(chatId, { text: caption, mentions:[target] }, { quoted: msg })
+      } else {
+        const chosen = pick(existing)
+        const img = fs.readFileSync(path.join('./assets', chosen))
+        await sock.sendMessage(chatId, { image: img, caption, mentions:[target] }, { quoted: msg })
+      }
+    } catch {
+      await sock.sendMessage(chatId, { text: caption, mentions:[target] }, { quoted: msg })
+    }
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
