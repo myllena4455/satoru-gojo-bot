@@ -946,12 +946,16 @@ async function getGroupMarriageState(chatId){
 
 async function getGroupMarriagePartners(chatId, userId){
   const state = await getGroupMarriageState(chatId)
-  return uniqueJidsByNumber(normalizeMarriedList(state[userId]))
+  const matchedKey = Object.keys(state).find(key => sameJidUser(key, userId)) || userId
+  return uniqueJidsByNumber(normalizeMarriedList(state[matchedKey]))
 }
 
 async function setGroupMarriagePartners(chatId, userId, partners){
   const state = await getGroupMarriageState(chatId)
   const list = uniqueJidsByNumber(partners)
+  for (const key of Object.keys(state)){
+    if (sameJidUser(key, userId)) delete state[key]
+  }
   if (list.length) state[userId] = list
   else delete state[userId]
   await saveDB()
@@ -959,7 +963,9 @@ async function setGroupMarriagePartners(chatId, userId, partners){
 
 async function clearGroupMarriage(chatId, userId){
   const state = await getGroupMarriageState(chatId)
-  delete state[userId]
+  for (const key of Object.keys(state)){
+    if (sameJidUser(key, userId)) delete state[key]
+  }
   await saveDB()
 }
 
@@ -1588,8 +1594,20 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   const senderJid = sender || toNumberJid(jidDigits(sender))
   const isGroup = chatId.endsWith('@g.us')
   const scopedUserId = (jid) => userDbId(jid, chatId, isGroup)
-  const getUser = (jid) => dbGetUser(scopedUserId(jid))
-  const setUser = (jid, obj) => dbSetUser(scopedUserId(jid), obj)
+  const resolveUserRecordId = async (jid) => {
+    await db_mod.read()
+    db_mod.data.users ||= {}
+    const exactId = scopedUserId(jid)
+    if (db_mod.data.users[exactId]) return exactId
+    const aliasIds = await listUserAliasJids(jid, isGroup ? chatId : '')
+    for (const aliasId of aliasIds){
+      const scopedAliasId = scopedUserId(aliasId)
+      if (db_mod.data.users[scopedAliasId]) return scopedAliasId
+    }
+    return exactId
+  }
+  const getUser = async (jid) => dbGetUser(await resolveUserRecordId(jid))
+  const setUser = async (jid, obj) => dbSetUser(await resolveUserRecordId(jid), obj)
   if (isGroup) await bootstrapUserFromLegacy(sender, chatId)
   const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
   await maybeUpdateLastActive(sender, getUser)
