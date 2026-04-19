@@ -15,6 +15,8 @@ import { PROFESSIONS, STORE, PLANTS } from './config.js'
 import { handleForca } from './games/forca.js'
 import { handleRps } from './games/rps.js'
 ffmpeg.setFfmpegPath(ffmpegStatic)
+const dbGetUser = getUser
+const dbSetUser = setUser
 
 function loadEnvFile(filePath = path.resolve(process.cwd(), '.env')){
   try {
@@ -167,11 +169,22 @@ function resolveSenderJid(msg){
   if (msg?.key?.fromMe && sock?.user?.id) return sock.user.id
   return msg?.key?.participant || msg?.participant || msg?.key?.remoteJid || ''
 }
+function stripUserScope(id){
+  const raw = String(id || '')
+  const marker = '::'
+  const idx = raw.lastIndexOf(marker)
+  if (idx === -1) return raw
+  return raw.slice(idx + marker.length)
+}
 function jidToNumber(jid){
-  const base = String(jid || '')
+  const base = stripUserScope(String(jid || ''))
     .replace(/:\d+@/, '@')
     .replace(/@.+$/, '')
   return base
+}
+function userDbId(jid, chatId, isGroup){
+  if (!isGroup) return jid
+  return `${chatId}::${jid}`
 }
 function getMentionedJids(msg, arg = []){
   const ctxMentions = msg?.message?.extendedTextMessage?.contextInfo?.mentionedJid || []
@@ -274,6 +287,17 @@ function uniqueJidsByNumber(list = []){
     out.push(jid)
   }
   return out
+}
+async function listUserAliasJids(jid = '', chatId = ''){
+  await db_mod.read()
+  db_mod.data.users ||= {}
+  let keys = Object.keys(db_mod.data.users || {})
+  if (chatId){
+    const prefix = `${chatId}::`
+    keys = keys.filter(key => key.startsWith(prefix))
+  }
+  const aliases = keys.filter(key => sameJidUser(key, jid))
+  return uniqueJidsByNumber([jid, ...aliases])
 }
 function getQuotedImageMessage(msg){
   const ctx = msg?.message?.extendedTextMessage?.contextInfo
@@ -610,8 +634,8 @@ SATORU GOJO — COMANDO INVÁLIDO
   await sendReactionImage(chatId, msg, payload.texts)
   await sock.sendMessage(chatId, { text: payload.block }, { quoted: msg })
 }
-async function maybeUpdateLastActive(userId){
-  const u = await getUser(userId)
+async function maybeUpdateLastActive(userId, getUserFn){
+  const u = await getUserFn(userId)
   u.lastActive = Date.now()
   u.level = lvlForXP(u.xp || 0)
   const married = normalizeMarriedList(u.marriedTo).map(toNumberJid)
@@ -1456,8 +1480,11 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   const sender = resolveSenderJid(msg)
   const senderJid = sender || toNumberJid(jidDigits(sender))
   const isGroup = chatId.endsWith('@g.us')
+  const ctxUserId = (jid) => userDbId(jid, chatId, isGroup)
+  const getUser = (jid) => dbGetUser(ctxUserId(jid))
+  const setUser = (jid, obj) => dbSetUser(ctxUserId(jid), obj)
   const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
-  await maybeUpdateLastActive(sender)
+  await maybeUpdateLastActive(sender, getUser)
 
   const groupSettings = isGroup ? await getGroupSettings(chatId) : null
   if (isGroup && groupSettings?.mutedUsers?.includes(sender)){
@@ -1842,6 +1869,20 @@ SATORU GOJO — BLOQUEADO
   // Perfil & status
   if (cmd==='perfil'){
     const u = await getUser(sender)
+    if (!normalizeMarriedList(u.marriedTo).length){
+      const aliasJids = await listUserAliasJids(sender, chatId)
+      for (const alias of aliasJids){
+        if (sameJidUser(alias, sender)){
+          const aliasUser = await getUser(alias)
+          const aliasPartners = uniqueJidsByNumber(normalizeMarriedList(aliasUser.marriedTo))
+          if (aliasPartners.length){
+            u.marriedTo = aliasPartners
+            setMaritalStatusLabel(u)
+            break
+          }
+        }
+      }
+    }
     const numero = jidToNumber(sender)
     const marriedPartners = uniqueJidsByNumber(normalizeMarriedList(u.marriedTo))
     u.level = lvlForXP(u.xp || 0)
@@ -2691,11 +2732,15 @@ Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
     }
 
     for (const jid of proposal.participants){
-      const u = await getUser(jid)
-      const current = normalizeMarriedList(u.marriedTo)
-      const partners = proposal.participants.filter(x => x !== jid)
-      u.marriedTo = [...new Set([...current, ...partners])]
-      setMaritalStatusLabel(u)
+      const aliases = await listUserAliasJids(jid, chatId)
+      const partners = uniqueJidsByNumber(proposal.participants.filter(x => !sameJidUser(x, jid)))
+      for (const aliasJid of aliases){
+        const u = await getUser(aliasJid)
+        const current = uniqueJidsByNumber(normalizeMarriedList(u.marriedTo).filter(x => !sameJidUser(x, aliasJid)))
+        const mergedPartners = uniqueJidsByNumber([...current, ...partners])
+        u.marriedTo = mergedPartners.length ? mergedPartners : null
+        setMaritalStatusLabel(u)
+      }
     }
     await saveDB()
     await deleteMarriageProposal(chatId)
