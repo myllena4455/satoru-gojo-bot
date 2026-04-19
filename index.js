@@ -315,30 +315,44 @@ function isDefaultUserRecord(user){
     && (user.bossesDefeated || 0) === 0
     && !normalizeMarriedList(user.marriedTo).length
 }
-async function bootstrapScopedUserFromLegacy(scopedUserId, legacyJid, chatId=''){
-  if (!scopedUserId || !legacyJid) return false
+function userProgressScore(user){
+  if (!user) return -1
+  return [
+    Number(user.level || 0) * 1000000,
+    Number(user.xp || 0) * 1000,
+    Number(user.coins || 0),
+    Number(user.bank || 0),
+    Number(user.wins || 0) * 50,
+    Number(user.losses || 0) * 5,
+    Number(user.explores || 0) * 20,
+    Number(user.bossesDefeated || 0) * 200,
+    normalizeMarriedList(user.marriedTo).length ? 500000 : 0
+  ].reduce((sum, value) => sum + value, 0)
+}
+async function bootstrapUserFromLegacy(legacyJid, chatId=''){
+  if (!legacyJid) return false
   await db_mod.read()
   db_mod.data.users ||= {}
+  const scopedUserId = chatId ? `${chatId}::${legacyJid}` : legacyJid
   const current = db_mod.data.users[scopedUserId]
-  if (!current || !isDefaultUserRecord(current)) return false
 
   const legacyEntries = Object.entries(db_mod.data.users).filter(([key]) => {
     if (key === scopedUserId) return false
     if (chatId && key.startsWith(`${chatId}::`)) return false
-    return sameJidUser(key, legacyJid)
+    return key !== legacyJid && sameJidUser(key, legacyJid)
   })
   if (!legacyEntries.length) return false
 
-  const preferredEntry = legacyEntries.find(([, user]) => normalizeMarriedList(user.marriedTo).length)
-    || legacyEntries.find(([, user]) => (user.xp || 0) > 0 || (user.coins || 0) !== 100 || (user.bank || 0) !== 0)
+  const preferredEntry = legacyEntries.sort((a, b) => userProgressScore(b[1]) - userProgressScore(a[1]))[0]
     || legacyEntries[0]
   if (!preferredEntry) return false
 
   const [, legacy] = preferredEntry
+  const base = current && !isDefaultUserRecord(current) ? current : (current || {})
   const merged = {
-    ...current,
+    ...base,
     ...legacy,
-    marriedTo: uniqueJidsByNumber(normalizeMarriedList(legacy.marriedTo)),
+    marriedTo: null,
     children: Array.isArray(legacy.children) ? [...legacy.children] : [],
     items: Array.isArray(legacy.items) ? [...legacy.items] : [],
     cooldowns: legacy.cooldowns ? { ...legacy.cooldowns } : {},
@@ -688,9 +702,6 @@ async function maybeUpdateLastActive(userId, getUserFn){
   const u = await getUserFn(userId)
   u.lastActive = Date.now()
   u.level = lvlForXP(u.xp || 0)
-  const married = normalizeMarriedList(u.marriedTo).map(toNumberJid)
-  u.marriedTo = married.length ? [...new Set(married)] : null
-  setMaritalStatusLabel(u)
   await saveDB()
   return u
 }
@@ -920,14 +931,55 @@ async function deleteMarriageProposal(chatId){
   await saveDB()
 }
 
+async function getGroupMarriageState(chatId){
+  await db_mod.read()
+  db_mod.data.system ||= {}
+  db_mod.data.system.groupMarriages ||= {}
+  db_mod.data.system.groupMarriages[chatId] ||= {}
+  return db_mod.data.system.groupMarriages[chatId]
+}
+
+async function getGroupMarriagePartners(chatId, userId){
+  const state = await getGroupMarriageState(chatId)
+  return uniqueJidsByNumber(normalizeMarriedList(state[userId]))
+}
+
+async function setGroupMarriagePartners(chatId, userId, partners){
+  const state = await getGroupMarriageState(chatId)
+  const list = uniqueJidsByNumber(partners)
+  if (list.length) state[userId] = list
+  else delete state[userId]
+  await saveDB()
+}
+
+async function clearGroupMarriage(chatId, userId){
+  const state = await getGroupMarriageState(chatId)
+  delete state[userId]
+  await saveDB()
+}
+
+async function migrateLegacyMarriageToGroup(chatId, userId){
+  const u = await getUser(userId)
+  const legacy = uniqueJidsByNumber(normalizeMarriedList(u.marriedTo))
+  if (!legacy.length) return []
+  const partners = [...new Set([userId, ...legacy])]
+  for (const jid of partners){
+    const partnerList = partners.filter(x => x !== jid)
+    await setGroupMarriagePartners(chatId, jid, partnerList)
+  }
+  u.marriedTo = null
+  await saveDB()
+  return legacy
+}
+
 function normalizeMarriedList(value){
   if (Array.isArray(value)) return value.filter(Boolean)
   if (!value) return []
   return [value]
 }
 
-function setMaritalStatusLabel(user){
-  user.casado = normalizeMarriedList(user.marriedTo).length ? 'Casado(a)' : 'Solteiro(a)'
+function setMaritalStatusLabel(user, marriedPartners = null){
+  user.casado = normalizeMarriedList(marriedPartners ?? user.marriedTo).length ? 'Casado(a)' : 'Solteiro(a)'
 }
 
 function progressBar(value, max=100, size=10){
@@ -1530,10 +1582,10 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   const sender = resolveSenderJid(msg)
   const senderJid = sender || toNumberJid(jidDigits(sender))
   const isGroup = chatId.endsWith('@g.us')
-  const ctxUserId = (jid) => userDbId(jid, chatId, isGroup)
-  const getUser = (jid) => dbGetUser(ctxUserId(jid))
-  const setUser = (jid, obj) => dbSetUser(ctxUserId(jid), obj)
-  if (isGroup) await bootstrapScopedUserFromLegacy(ctxUserId(sender), sender, chatId)
+  const scopedUserId = (jid) => userDbId(jid, chatId, isGroup)
+  const getUser = (jid) => dbGetUser(scopedUserId(jid))
+  const setUser = (jid, obj) => dbSetUser(scopedUserId(jid), obj)
+  if (isGroup) await bootstrapUserFromLegacy(sender, chatId)
   const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
   await maybeUpdateLastActive(sender, getUser)
 
@@ -1920,25 +1972,14 @@ SATORU GOJO — BLOQUEADO
   // Perfil & status
   if (cmd==='perfil'){
     const u = await getUser(sender)
-    if (!normalizeMarriedList(u.marriedTo).length){
-      const aliasJids = await listUserAliasJids(sender, chatId)
-      for (const alias of aliasJids){
-        if (sameJidUser(alias, sender)){
-          const aliasUser = await getUser(alias)
-          const aliasPartners = uniqueJidsByNumber(normalizeMarriedList(aliasUser.marriedTo))
-          if (aliasPartners.length){
-            u.marriedTo = aliasPartners
-            setMaritalStatusLabel(u)
-            break
-          }
-        }
-      }
-    }
     const numero = jidToNumber(sender)
-    const marriedPartners = uniqueJidsByNumber(normalizeMarriedList(u.marriedTo))
+    const currentMarriage = isGroup ? await getGroupMarriagePartners(chatId, sender) : []
+    if (isGroup && !currentMarriage.length && normalizeMarriedList(u.marriedTo).length){
+      await migrateLegacyMarriageToGroup(chatId, sender)
+    }
+    const marriedPartners = isGroup ? await getGroupMarriagePartners(chatId, sender) : []
     u.level = lvlForXP(u.xp || 0)
-    u.marriedTo = marriedPartners.length ? marriedPartners : null
-    setMaritalStatusLabel(u)
+    setMaritalStatusLabel(u, marriedPartners)
     await saveDB()
     let partnerMentionJids = [...marriedPartners]
     if (isGroup && marriedPartners.length){
@@ -2623,6 +2664,9 @@ ${names}` }, { quoted: msg })
   if (cmd==='casar'){
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
     const proposerJid = sender
+    if (normalizeMarriedList((await getUser(proposerJid)).marriedTo).length){
+      await migrateLegacyMarriageToGroup(chatId, proposerJid)
+    }
     const targetJids = getMentionedJids(msg, arg)
       .filter(jid => !sameJidUser(jid, proposerJid))
     const uniqueTargetJids = uniqueJidsByNumber(targetJids)
@@ -2641,8 +2685,11 @@ ${names}` }, { quoted: msg })
     }
 
     for (const jid of uniqueParticipants){
-      const u = await getUser(jid)
-      if (normalizeMarriedList(u.marriedTo).length){
+      if (normalizeMarriedList((await getUser(jid)).marriedTo).length){
+        await migrateLegacyMarriageToGroup(chatId, jid)
+      }
+      const marriedPartners = await getGroupMarriagePartners(chatId, jid)
+      if (marriedPartners.length){
         await sock.sendMessage(chatId, { text:`@${jidToNumber(jid)} já está em um casamento.`, mentions:[jid] }, { quoted: msg })
         await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
         return
@@ -2783,15 +2830,8 @@ Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
     }
 
     for (const jid of proposal.participants){
-      const aliases = await listUserAliasJids(jid, chatId)
       const partners = uniqueJidsByNumber(proposal.participants.filter(x => !sameJidUser(x, jid)))
-      for (const aliasJid of aliases){
-        const u = await getUser(aliasJid)
-        const current = uniqueJidsByNumber(normalizeMarriedList(u.marriedTo).filter(x => !sameJidUser(x, aliasJid)))
-        const mergedPartners = uniqueJidsByNumber([...current, ...partners])
-        u.marriedTo = mergedPartners.length ? mergedPartners : null
-        setMaritalStatusLabel(u)
-      }
+      await setGroupMarriagePartners(chatId, jid, partners)
     }
     await saveDB()
     await deleteMarriageProposal(chatId)
@@ -2836,15 +2876,11 @@ semana, dá muito trabalho pro sistema.”
 
   if (cmd==='divorciar'){
     const u = await getUser(sender)
-    const partners = normalizeMarriedList(u.marriedTo)
+    const partners = isGroup ? await getGroupMarriagePartners(chatId, sender) : []
     if (!partners.length){ await sock.sendMessage(chatId, { text:'Você não está casado.' }, { quoted: msg }); return }
-    u.marriedTo = null
-    setMaritalStatusLabel(u)
+    await clearGroupMarriage(chatId, sender)
     for (const jid of partners){
-      const partner = await getUser(jid)
-      const list = normalizeMarriedList(partner.marriedTo).filter(x => x !== sender)
-      partner.marriedTo = list.length ? list : null
-      setMaritalStatusLabel(partner)
+      await clearGroupMarriage(chatId, jid)
     }
     await saveDB()
     await sock.sendMessage(chatId, { text:'💔 Divórcio oficializado. Tudo terminado com dignidade.' }, { quoted: msg })
@@ -2855,16 +2891,12 @@ semana, dá muito trabalho pro sistema.”
   if (cmd==='trair'){
     const u = await getUser(sender)
     const leftParts = []
-    const partners = normalizeMarriedList(u.marriedTo)
+    const partners = isGroup ? await getGroupMarriagePartners(chatId, sender) : []
     if (partners.length){
       leftParts.push('casamento')
-      u.marriedTo = null
-      setMaritalStatusLabel(u)
+      await clearGroupMarriage(chatId, sender)
       for (const jid of partners){
-        const partner = await getUser(jid)
-        const list = normalizeMarriedList(partner.marriedTo).filter(x => x !== sender)
-        partner.marriedTo = list.length ? list : null
-        setMaritalStatusLabel(partner)
+        await clearGroupMarriage(chatId, jid)
       }
       u.betrayalTitle = 'Corno(a)'
     }
