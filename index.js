@@ -260,6 +260,21 @@ function sameNumber(a, b){
   if (!da || !db) return false
   return da === db || da.endsWith(db) || db.endsWith(da)
 }
+function sameJidUser(a, b){
+  return sameNumber(jidDigits(a), jidDigits(b))
+}
+function findParticipantByNumber(participants = [], jid = ''){
+  return (participants || []).find(p => sameJidUser(p, jid)) || ''
+}
+function uniqueJidsByNumber(list = []){
+  const out = []
+  for (const jid of list || []){
+    if (!jid) continue
+    if (out.some(existing => sameJidUser(existing, jid))) continue
+    out.push(jid)
+  }
+  return out
+}
 function getQuotedImageMessage(msg){
   const ctx = msg?.message?.extendedTextMessage?.contextInfo
   const quoted = ctx?.quotedMessage || {}
@@ -923,7 +938,8 @@ GOJO — MENU RPG
 
 💍 ㅤ SOCIAL E FAMÍLIA:
 
-ㅤ ╰ .casar @user ㅤ ╰ .trair
+ㅤ ╰ .casar @user ㅤ ╰ .revogarcasamento
+ㅤ ╰ .trair
 ㅤ ╰ .adotar
 
 ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
@@ -1827,11 +1843,19 @@ SATORU GOJO — BLOQUEADO
   if (cmd==='perfil'){
     const u = await getUser(sender)
     const numero = jidToNumber(sender)
-    const marriedPartners = normalizeMarriedList(u.marriedTo).map(toNumberJid)
+    const marriedPartners = uniqueJidsByNumber(normalizeMarriedList(u.marriedTo))
     u.level = lvlForXP(u.xp || 0)
-    u.marriedTo = marriedPartners.length ? [...new Set(marriedPartners)] : null
+    u.marriedTo = marriedPartners.length ? marriedPartners : null
     setMaritalStatusLabel(u)
     await saveDB()
+    let partnerMentionJids = [...marriedPartners]
+    if (isGroup && marriedPartners.length){
+      try {
+        const meta = await sock.groupMetadata(chatId)
+        const participants = (meta.participants || []).map(p => p.id)
+        partnerMentionJids = marriedPartners.map(jid => participants.find(pid => sameJidUser(pid, jid)) || jid)
+      } catch {}
+    }
     const nome = u.name || msg.pushName || 'Usuário'
     const level = u.level || 1, xp = u.xp || 0, coins=u.coins||0, bank=u.bank||0
     const items=(u.items||[]).length
@@ -1840,8 +1864,8 @@ SATORU GOJO — BLOQUEADO
     const age = u.createdAt ? timeSince(u.createdAt) : '—'
     const titulo = u.titulo || 'Novato'
     const casado = u.casado || 'Solteiro(a)'
-    const conjugesText = marriedPartners.length
-      ? (await Promise.all(marriedPartners.map(async jid => {
+    const conjugesText = partnerMentionJids.length
+      ? (await Promise.all(partnerMentionJids.map(async jid => {
           const partner = await getUser(jid)
           const label = partner.name || jidToNumber(jid)
           return `@${jidToNumber(jid)} (${label})`
@@ -1915,7 +1939,7 @@ chegue no meu nivel." — Satoru 🤭
 
     try {
       const purl = await sock.profilePictureUrl(sender,'image')
-      const mentions = [sender, ...marriedPartners]
+      const mentions = uniqueJidsByNumber([sender, ...partnerMentionJids])
       if (purl){
         const img = await fetchBuffer(purl)
         await sock.sendMessage(chatId, { image: img, caption, mentions }, { quoted: msg })
@@ -1923,7 +1947,7 @@ chegue no meu nivel." — Satoru 🤭
         await sock.sendMessage(chatId, { text: caption, mentions }, { quoted: msg })
       }
     } catch {
-      await sock.sendMessage(chatId, { text: caption, mentions:[senderJid, ...marriedPartners] }, { quoted: msg })
+      await sock.sendMessage(chatId, { text: caption, mentions: uniqueJidsByNumber([senderJid, ...partnerMentionJids]) }, { quoted: msg })
     }
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
@@ -2508,8 +2532,8 @@ ${names}` }, { quoted: msg })
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
     const proposerJid = sender
     const targetJids = getMentionedJids(msg, arg)
-      .filter(jid => jid !== proposerJid)
-    const uniqueTargetJids = [...new Set(targetJids)]
+      .filter(jid => !sameJidUser(jid, proposerJid))
+    const uniqueTargetJids = uniqueJidsByNumber(targetJids)
     if (!uniqueTargetJids.length || uniqueTargetJids.length > 3){
       await sock.sendMessage(chatId, { text:'Use: .casar @user ou .casar @user1 @user2 @user3 (casamento até 4 pessoas).' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
@@ -2517,7 +2541,7 @@ ${names}` }, { quoted: msg })
     }
 
     const participants = [proposerJid, ...uniqueTargetJids]
-    const uniqueParticipants = [...new Set(participants)]
+    const uniqueParticipants = uniqueJidsByNumber(participants)
     if (uniqueParticipants.length !== participants.length){
       await sock.sendMessage(chatId, { text:'Você não pode repetir pessoas na proposta de casamento.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
@@ -2589,6 +2613,44 @@ ${inviteLine}
     return
   }
 
+  if (cmd==='revogarcasamento' || cmd==='cancelarpedido' || cmd==='cancelarcasamento'){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
+    const proposal = await getMarriageProposal(chatId)
+    if (!proposal){
+      await sock.sendMessage(chatId, { text:'Não há pedido de casamento pendente neste grupo.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+
+    const senderParticipant = findParticipantByNumber(proposal.participants, senderJid)
+    const proposerParticipant = findParticipantByNumber(proposal.participants, proposal.proposer)
+    let canRevoke = !!senderParticipant && !!proposerParticipant && sameJidUser(senderParticipant, proposerParticipant)
+
+    if (!canRevoke){
+      try {
+        const meta = await sock.groupMetadata(chatId)
+        const admins = (meta.participants || []).filter(p => p.admin).map(p => p.id)
+        canRevoke = ownerContext || admins.some(adminJid => sameJidUser(adminJid, senderJid))
+      } catch {
+        canRevoke = ownerContext
+      }
+    }
+
+    if (!canRevoke){
+      await sock.sendMessage(chatId, { text:'Apenas quem criou o pedido, admins do grupo ou dono do bot podem revogar.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3')
+      return
+    }
+
+    await deleteMarriageProposal(chatId)
+    await sock.sendMessage(chatId, {
+      text:`🧹 Pedido de casamento revogado por @${jidToNumber(senderJid)}.`,
+      mentions:[senderJid]
+    }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+
   if (cmd==='sim' || cmd==='nao'){
     const proposal = await getMarriageProposal(chatId)
     if (!proposal){
@@ -2596,7 +2658,8 @@ ${inviteLine}
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
     }
-    if (!proposal.participants.includes(senderJid)){
+    const participantJid = findParticipantByNumber(proposal.participants, senderJid)
+    if (!participantJid){
       await sock.sendMessage(chatId, { text:'Somente pessoas envolvidas no pedido podem responder.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
@@ -2604,23 +2667,24 @@ ${inviteLine}
 
     if (cmd==='nao'){
       await deleteMarriageProposal(chatId)
-      await sock.sendMessage(chatId, { text:`❌ Pedido de casamento recusado por @${jidToNumber(senderJid)}.`, mentions:[senderJid] }, { quoted: msg })
+      await sock.sendMessage(chatId, { text:`❌ Pedido de casamento recusado por @${jidToNumber(participantJid)}.`, mentions:[participantJid] }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
     }
 
-    if (proposal.accepted.has(senderJid)){
+    if (proposal.accepted.has(participantJid)){
       await sock.sendMessage(chatId, { text:'Você já confirmou com .sim.' }, { quoted: msg })
       return
     }
 
-    proposal.accepted.add(senderJid)
+    proposal.accepted.add(participantJid)
+    await setMarriageProposal(chatId, proposal)
     const pending = proposal.participants.filter(jid => !proposal.accepted.has(jid))
     if (pending.length){
       await sock.sendMessage(chatId, {
-        text:`✅ @${jidToNumber(senderJid)} confirmou.
+        text:`✅ @${jidToNumber(participantJid)} confirmou.
 Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
-        mentions:[senderJid, ...pending]
+        mentions:[participantJid, ...pending]
       }, { quoted: msg })
       await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
       return
@@ -2636,11 +2700,38 @@ Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
     await saveDB()
     await deleteMarriageProposal(chatId)
 
+    const displayParticipants = proposal.participants.slice(0, 2)
+    const user1 = jidToNumber(displayParticipants[0] || proposal.participants[0] || '')
+    const user2 = jidToNumber(displayParticipants[1] || proposal.participants[0] || '')
+    const data_atual = fmtDate(Date.now())
+
     await sock.sendMessage(chatId, {
-      text:`💞 Casamento confirmado com consenso de todos!\nParticipantes: ${(await Promise.all(proposal.participants.map(async jid => {
-        const user = await getUser(jid)
-        return `@${jidToNumber(jid)} (${user.name || jidToNumber(jid)})`
-      }))).join(', ')}`,
+      text:`💍 ㅤ   ▬▬▬ㅤ
+VÍNCULO ESTABELECIDO
+ㅤ 👁️👁️ㅤ  "Agora é oficial. Que tragédia fofa."  ㅤ .
+
+┌──────────────────────┐
+ㅤ  Olha só, eles realmente foram
+ㅤ  até o fim. O contrato foi selado
+ㅤ  e agora as energias de vocês
+ㅤ  estão ligadas. Juízo... ou não. 🍬✨
+└──────────────────────┘
+
+👩‍❤️‍👨 ㅤ RECÉM-CASADOS:
+ㅤ ╰  @${user1} **&** @${user2}
+
+📜 ㅤ DETALHES DO REGISTRO:
+ㅤ ╰ Tipo: União de Grau Especial 💎
+ㅤ ╰ Data: ${data_atual}
+ㅤ ╰ Juiz: Satoru Gojo 🔵
+
+💖 ㅤ STATUS DO CASAL:
+[▰▰▰▰▰▰▰▰▰▰] 100% UNIDOS
+
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+“Não me venham com divórcio na próxima
+semana, dá muito trabalho pro sistema.”
+◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤`,
       mentions: proposal.participants
     }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
