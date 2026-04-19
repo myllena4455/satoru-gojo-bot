@@ -3,7 +3,7 @@ import { JSONFile } from 'lowdb/node'
 
 const DB_FILE = process.env.DB_FILE || 'db.json'
 const adapter = new JSONFile(DB_FILE)
-const db = new Low(adapter, { users:{}, games:{}, scores:{}, custom:{}, groups:{}, clans:{} })
+const db = new Low(adapter, { users:{}, games:{}, scores:{}, custom:{}, groups:{}, clans:{}, system:{} })
 
 async function safeWrite(retries = 5){
   let lastErr = null
@@ -23,7 +23,8 @@ async function safeWrite(retries = 5){
 
 export async function initDB(){
   await db.read()
-  db.data ||= { users:{}, games:{}, scores:{}, custom:{}, groups:{} }
+  db.data ||= { users:{}, games:{}, scores:{}, custom:{}, groups:{}, clans:{}, system:{} }
+  db.data.system ||= {}
   await safeWrite()
 }
 

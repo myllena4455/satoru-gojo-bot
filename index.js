@@ -768,6 +768,43 @@ function canRunCommand(userId){
 }
 function canSendSticker(userId){ const now=Date.now(), last=lastStickerAt.get(userId)||0; if(now-last<1000) return false; lastStickerAt.set(userId, now); return true }
 
+function serializeMarriageProposal(proposal){
+  if (!proposal) return null
+  return { ...proposal, accepted: [...(proposal.accepted || [])] }
+}
+
+function hydrateMarriageProposal(proposal){
+  if (!proposal) return null
+  return { ...proposal, accepted: new Set(proposal.accepted || []) }
+}
+
+async function getMarriageProposal(chatId){
+  const cached = marriageProposals.get(chatId)
+  if (cached) return cached
+  await db_mod.read()
+  const raw = db_mod.data.system?.marriageProposals?.[chatId]
+  if (!raw) return null
+  const proposal = hydrateMarriageProposal(raw)
+  marriageProposals.set(chatId, proposal)
+  return proposal
+}
+
+async function setMarriageProposal(chatId, proposal){
+  marriageProposals.set(chatId, proposal)
+  await db_mod.read()
+  db_mod.data.system ||= {}
+  db_mod.data.system.marriageProposals ||= {}
+  db_mod.data.system.marriageProposals[chatId] = serializeMarriageProposal(proposal)
+  await saveDB()
+}
+
+async function deleteMarriageProposal(chatId){
+  marriageProposals.delete(chatId)
+  await db_mod.read()
+  if (db_mod.data.system?.marriageProposals) delete db_mod.data.system.marriageProposals[chatId]
+  await saveDB()
+}
+
 function normalizeMarriedList(value){
   if (Array.isArray(value)) return value.filter(Boolean)
   if (!value) return []
@@ -1489,7 +1526,9 @@ SATORU GOJO — BLOQUEADO
     return
   }
 
-  const parts = parseCommandText(text)
+  const normalizedText = text.toLowerCase().trim()
+  const pendingMarriageReply = ['sim', 'nao', 'não'].includes(normalizedText) ? normalizedText.replace('não', 'nao') : ''
+  const parts = parseCommandText(text) || (pendingMarriageReply && await getMarriageProposal(chatId) ? [pendingMarriageReply] : null)
   if (!parts) return
 
   // Anti-flood
@@ -2436,17 +2475,23 @@ ${names}` }, { quoted: msg })
 
   if (cmd==='casar'){
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
-    const targetJids = getMentionedJids(msg, arg).filter(jid => jid !== sender)
+    const senderDigits = jidDigits(sender)
+    const senderJid = toNumberJid(senderDigits)
+    const targetJids = getMentionedJids(msg, arg)
+      .map(jid => toNumberJid(jidDigits(jid)))
+      .filter(jid => jid !== senderJid)
     const targetNumbers = targetJids.map(jidToNumber)
-    if (!targetNumbers.length || targetNumbers.length > 2){
+    const uniqueTargetNumbers = [...new Set(targetNumbers)]
+    if (!uniqueTargetNumbers.length || uniqueTargetNumbers.length > 2){
       await sock.sendMessage(chatId, { text:'Use: .casar @user ou .casar @user1 @user2 (casamento a 3).' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
     }
 
-    const participants = [sender, ...targetNumbers.map(toNumberJid)]
+    const participants = [senderJid, ...uniqueTargetNumbers.map(toNumberJid)]
+    const participantDigits = [senderDigits, ...uniqueTargetNumbers]
     const uniqueParticipants = [...new Set(participants)]
-    if (uniqueParticipants.length !== participants.length){
+    if (uniqueParticipants.length !== participants.length || new Set(participantDigits).size !== participantDigits.length){
       await sock.sendMessage(chatId, { text:'Você não pode repetir pessoas na proposta de casamento.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
@@ -2461,7 +2506,7 @@ ${names}` }, { quoted: msg })
       }
     }
 
-    const activeProposal = marriageProposals.get(chatId)
+    const activeProposal = await getMarriageProposal(chatId)
     if (activeProposal){
       await sock.sendMessage(chatId, { text:'Já existe um pedido de casamento pendente neste grupo. Responda com .sim ou .nao.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
@@ -2476,7 +2521,7 @@ ${names}` }, { quoted: msg })
       accepted: new Set([sender]),
       createdAt: Date.now()
     }
-    marriageProposals.set(chatId, proposal)
+    await setMarriageProposal(chatId, proposal)
 
     const user1 = jidToNumber(sender)
     const mentions = uniqueParticipants
@@ -2513,7 +2558,7 @@ ${inviteLine}
   }
 
   if (cmd==='sim' || cmd==='nao'){
-    const proposal = marriageProposals.get(chatId)
+    const proposal = await getMarriageProposal(chatId)
     if (!proposal){
       await sock.sendMessage(chatId, { text:'Não há pedido de casamento pendente neste grupo.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
@@ -2526,7 +2571,7 @@ ${inviteLine}
     }
 
     if (cmd==='nao'){
-      marriageProposals.delete(chatId)
+      await deleteMarriageProposal(chatId)
       await sock.sendMessage(chatId, { text:`❌ Pedido de casamento recusado por @${jidToNumber(sender)}.`, mentions:[sender] }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
@@ -2557,7 +2602,7 @@ Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
       setMaritalStatusLabel(u)
     }
     await saveDB()
-    marriageProposals.delete(chatId)
+    await deleteMarriageProposal(chatId)
 
     await sock.sendMessage(chatId, {
       text:`💞 Casamento confirmado com consenso de todos!\nParticipantes: ${proposal.participants.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,

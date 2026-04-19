@@ -8,7 +8,21 @@ export const PROFESSIONS = [
   { id:'empresario', name:'Empresário(a)', salary:330, description:'Comande os outros enquanto lucra alto.', powerBoost: 6, defenseBoost: 6 }
 ]
 
-export const STORE = {
+function applyStoreDiscount(collection){
+  const discount = value => Math.max(1, Math.round(value * 0.9))
+  const discountEntry = item => {
+    const next = { ...item }
+    if (typeof next.price === 'number') next.price = discount(next.price)
+    if (typeof next.cost === 'number') next.cost = discount(next.cost)
+    if (typeof next.sellPrice === 'number') next.sellPrice = discount(next.sellPrice)
+    return next
+  }
+
+  if (Array.isArray(collection)) return collection.map(discountEntry)
+  return Object.fromEntries(Object.entries(collection).map(([key, value]) => [key, Array.isArray(value) ? value.map(discountEntry) : value]))
+}
+
+export const STORE = applyStoreDiscount({
   itens: [
     { id:1, name:'Colete de Couro', price:700, defense:5, description:'Proteção leve para o torso. (+5% Defesa)' },
     { id:2, name:'Luvas de Trabalho', price:450, boost:0.05, description:'Protege as mãos. (+5% de bônus no .work)' },
@@ -111,11 +125,11 @@ export const STORE = {
     { id:7, name:'Cristal Arcano', price:550 },
     { id:8, name:'Prata Bruta', price:220 }
   ]
-}
+})
 
-export const PLANTS = [
+export const PLANTS = applyStoreDiscount([
   { id:'tomate', name:'Tomate', cost:50, sellPrice:120, time:3*60*1000 },
   { id:'cenoura', name:'Cenoura', cost:60, sellPrice:150, time:4*60*1000 },
   { id:'melancia', name:'Melancia', cost:80, sellPrice:200, time:5*60*1000 },
   { id:'abobora', name:'Abóbora', cost:100, sellPrice:280, time:7*60*1000 }
-]
+])
