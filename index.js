@@ -198,12 +198,16 @@ function normalizeJobName(text){ return (text||'').toString().trim().toLowerCase
 function getProfession(user){ return PROFESSIONS.find(p => normalizeJobName(p.name) === normalizeJobName(user.job) || p.id === normalizeJobName(user.job)) }
 function findProfession(query){ const q = normalizeJobName(query); return PROFESSIONS.find(p => p.id === q || normalizeJobName(p.name) === q || normalizeJobName(p.id) === q) }
 function getClassBonus(user){ const cls = CLASSES.find(c => c.id === (user.classe||'').toString()) || { powerBonus:0, defenseBonus:0, precisionBonus:0, luckBonus:0, resistanceBonus:0, escapeBonus:0 }; return cls }
-function calcPower(user){ const base = (user.items||[]).reduce((sum,i)=>sum + (i.power||0),0) + 5; const prof = getProfession(user); const cls = getClassBonus(user); return Math.floor(base + (prof?.powerBoost||0) + base * cls.powerBonus) }
-function calcDefense(user){ const base = (user.items||[]).reduce((sum,i)=>sum + (i.defense||0),0) + 3; const prof = getProfession(user); const cls = getClassBonus(user); return Math.floor(base + (prof?.defenseBoost||0) + base * cls.defenseBonus) }
-function calcPrecision(user){ const cls = getClassBonus(user); const item = (user.items||[]).reduce((sum,i)=>sum+(i.precisionBoost||0),0); return cls.precisionBonus + item }
-function calcLuck(user){ const cls = getClassBonus(user); const item = (user.items||[]).reduce((sum,i)=>sum+(i.luckBoost||0),0); return cls.luckBonus + item }
-function calcResistance(user){ const cls = getClassBonus(user); const item = (user.items||[]).reduce((sum,i)=>sum+(i.resistanceBoost||0),0); return cls.resistanceBonus + item }
-function calcEscape(user){ const cls = getClassBonus(user); const item = (user.items||[]).reduce((sum,i)=>sum+(i.escapeBoost||0),0); return cls.escapeBonus + item }
+function getLevelScale(user){
+  const level = Math.max(1, Number(user?.level || lvlForXP(user?.xp || 0) || 1))
+  return 1 + Math.max(0, level - 1) * 0.02
+}
+function calcPower(user){ const base = (user.items||[]).reduce((sum,i)=>sum + (i.power||0),0) + 5; const prof = getProfession(user); const cls = getClassBonus(user); const levelScale = getLevelScale(user); return Math.floor((base + (prof?.powerBoost||0) + base * cls.powerBonus) * levelScale) }
+function calcDefense(user){ const base = (user.items||[]).reduce((sum,i)=>sum + (i.defense||0),0) + 3; const prof = getProfession(user); const cls = getClassBonus(user); const levelScale = getLevelScale(user); return Math.floor((base + (prof?.defenseBoost||0) + base * cls.defenseBonus) * levelScale) }
+function calcPrecision(user){ const cls = getClassBonus(user); const item = (user.items||[]).reduce((sum,i)=>sum+(i.precisionBoost||0),0); const levelScale = getLevelScale(user); return (cls.precisionBonus + item) * levelScale }
+function calcLuck(user){ const cls = getClassBonus(user); const item = (user.items||[]).reduce((sum,i)=>sum+(i.luckBoost||0),0); const levelScale = getLevelScale(user); return (cls.luckBonus + item) * levelScale }
+function calcResistance(user){ const cls = getClassBonus(user); const item = (user.items||[]).reduce((sum,i)=>sum+(i.resistanceBoost||0),0); const levelScale = getLevelScale(user); return (cls.resistanceBonus + item) * levelScale }
+function calcEscape(user){ const cls = getClassBonus(user); const item = (user.items||[]).reduce((sum,i)=>sum+(i.escapeBoost||0),0); const levelScale = getLevelScale(user); return (cls.escapeBonus + item) * levelScale }
 function getSalary(user){ const prof = getProfession(user); return prof ? prof.salary : 100 }
 const CLASSES = [
   { id:'guerreiro', name:'Guerreiro(a)', bonus:'+20% em Força', description:'Esmague seus inimigos com poder bruto.', powerBonus:0.20, defenseBonus:0, precisionBonus:0, luckBonus:0, resistanceBonus:0, escapeBonus:0 },
@@ -464,6 +468,7 @@ function isBotMentioned(msg){
   if (mentions.includes(botJid)) return true
   const text = msg?.message?.conversation || msg?.message?.extendedTextMessage?.text || ''
   if (/@/.test(text)) return true
+  if (/(\bgojo\b|\bsatoru\b|\bbot\b|\bsatoru gojo\b)/i.test(text)) return true
   return false
 }
 async function sendReactionImage(chatId, msg, texts){ try {
@@ -476,7 +481,9 @@ async function sendReactionImage(chatId, msg, texts){ try {
     if (!fs.existsSync(imgFile)) return await sock.sendMessage(chatId, { text: pick(texts) }, { quoted: msg })
     const buffer = fs.readFileSync(imgFile)
     await sock.sendMessage(chatId, { image: buffer, caption: pick(texts) }, { quoted: msg })
-  } catch {} }
+  } catch (err) {
+    try { await sock.sendMessage(chatId, { text: `${pick(texts)}\n\n[erro ao enviar imagem: ${err?.message || 'desconhecido'}]` }, { quoted: msg }) } catch {}
+  } }
 async function sendReactionImageCaption(chatId, msg, caption, mentions=[]){
   try {
     const images = [
@@ -1512,7 +1519,8 @@ SATORU GOJO — BLOQUEADO
   const lowerText = text.toLowerCase()
   const insultWords = ['pqp','fdp','fodase','vai se fuder','vai se foder','burro','idiota','otario','otário','merda']
   const hasInsult = insultWords.some(w=> lowerText.includes(w))
-  if (hasInsult && (isBotMentioned(msg) || !isGroup)){
+  const insultDirectedAtBot = isBotMentioned(msg)
+  if (hasInsult && (insultDirectedAtBot || !isGroup)){
     await sendDebocheWarning(chatId, msg, 'xinga')
     await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
     return
@@ -2482,8 +2490,8 @@ ${names}` }, { quoted: msg })
       .filter(jid => jid !== senderJid)
     const targetNumbers = targetJids.map(jidToNumber)
     const uniqueTargetNumbers = [...new Set(targetNumbers)]
-    if (!uniqueTargetNumbers.length || uniqueTargetNumbers.length > 2){
-      await sock.sendMessage(chatId, { text:'Use: .casar @user ou .casar @user1 @user2 (casamento a 3).' }, { quoted: msg })
+    if (!uniqueTargetNumbers.length || uniqueTargetNumbers.length > 3){
+      await sock.sendMessage(chatId, { text:'Use: .casar @user ou .casar @user1 @user2 @user3 (casamento até 4 pessoas).' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
     }
@@ -2515,15 +2523,15 @@ ${names}` }, { quoted: msg })
 
     const targets = uniqueParticipants.slice(1)
     const proposal = {
-      proposer: sender,
+      proposer: senderJid,
       participants: uniqueParticipants,
       targets,
-      accepted: new Set([sender]),
+      accepted: new Set([senderJid]),
       createdAt: Date.now()
     }
     await setMarriageProposal(chatId, proposal)
 
-    const user1 = jidToNumber(sender)
+    const user1 = jidToNumber(senderJid)
     const mentions = uniqueParticipants
     const proposalTargetsLine = targets.map(jid => `@${jidToNumber(jid)}`).join(', ')
     const inviteLine = targets.length === 1
@@ -2564,7 +2572,7 @@ ${inviteLine}
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
     }
-    if (!proposal.participants.includes(sender)){
+    if (!proposal.participants.includes(senderJid)){
       await sock.sendMessage(chatId, { text:'Somente pessoas envolvidas no pedido podem responder.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
@@ -2572,23 +2580,23 @@ ${inviteLine}
 
     if (cmd==='nao'){
       await deleteMarriageProposal(chatId)
-      await sock.sendMessage(chatId, { text:`❌ Pedido de casamento recusado por @${jidToNumber(sender)}.`, mentions:[sender] }, { quoted: msg })
+      await sock.sendMessage(chatId, { text:`❌ Pedido de casamento recusado por @${jidToNumber(senderJid)}.`, mentions:[senderJid] }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
     }
 
-    if (proposal.accepted.has(sender)){
+    if (proposal.accepted.has(senderJid)){
       await sock.sendMessage(chatId, { text:'Você já confirmou com .sim.' }, { quoted: msg })
       return
     }
 
-    proposal.accepted.add(sender)
+    proposal.accepted.add(senderJid)
     const pending = proposal.participants.filter(jid => !proposal.accepted.has(jid))
     if (pending.length){
       await sock.sendMessage(chatId, {
-        text:`✅ @${jidToNumber(sender)} confirmou.
+        text:`✅ @${jidToNumber(senderJid)} confirmou.
 Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
-        mentions:[sender, ...pending]
+        mentions:[senderJid, ...pending]
       }, { quoted: msg })
       await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
       return
