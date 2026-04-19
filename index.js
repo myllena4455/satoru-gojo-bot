@@ -299,6 +299,56 @@ async function listUserAliasJids(jid = '', chatId = ''){
   const aliases = keys.filter(key => sameJidUser(key, jid))
   return uniqueJidsByNumber([jid, ...aliases])
 }
+function isDefaultUserRecord(user){
+  return !!user
+    && (user.coins ?? 100) === 100
+    && (user.xp ?? 0) === 0
+    && (user.bank ?? 0) === 0
+    && (user.job || null) === null
+    && (user.status || '') === ''
+    && (user.items?.length || 0) === 0
+    && (user.children?.length || 0) === 0
+    && (user.kills || 0) === 0
+    && (user.wins || 0) === 0
+    && (user.losses || 0) === 0
+    && (user.explores || 0) === 0
+    && (user.bossesDefeated || 0) === 0
+    && !normalizeMarriedList(user.marriedTo).length
+}
+async function bootstrapScopedUserFromLegacy(scopedUserId, legacyJid, chatId=''){
+  if (!scopedUserId || !legacyJid) return false
+  await db_mod.read()
+  db_mod.data.users ||= {}
+  const current = db_mod.data.users[scopedUserId]
+  if (!current || !isDefaultUserRecord(current)) return false
+
+  const legacyEntries = Object.entries(db_mod.data.users).filter(([key]) => {
+    if (key === scopedUserId) return false
+    if (chatId && key.startsWith(`${chatId}::`)) return false
+    return sameJidUser(key, legacyJid)
+  })
+  if (!legacyEntries.length) return false
+
+  const preferredEntry = legacyEntries.find(([, user]) => normalizeMarriedList(user.marriedTo).length)
+    || legacyEntries.find(([, user]) => (user.xp || 0) > 0 || (user.coins || 0) !== 100 || (user.bank || 0) !== 0)
+    || legacyEntries[0]
+  if (!preferredEntry) return false
+
+  const [, legacy] = preferredEntry
+  const merged = {
+    ...current,
+    ...legacy,
+    marriedTo: uniqueJidsByNumber(normalizeMarriedList(legacy.marriedTo)),
+    children: Array.isArray(legacy.children) ? [...legacy.children] : [],
+    items: Array.isArray(legacy.items) ? [...legacy.items] : [],
+    cooldowns: legacy.cooldowns ? { ...legacy.cooldowns } : {},
+    materials: legacy.materials ? { ...legacy.materials } : { pedra:0, erva:0, carne:0, minerio:0 },
+    plants: legacy.plants ? { ...legacy.plants } : { tomate:0, cenoura:0, melancia:0, abobora:0 }
+  }
+  db_mod.data.users[scopedUserId] = merged
+  await saveDB()
+  return true
+}
 function getQuotedImageMessage(msg){
   const ctx = msg?.message?.extendedTextMessage?.contextInfo
   const quoted = ctx?.quotedMessage || {}
@@ -1483,6 +1533,7 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   const ctxUserId = (jid) => userDbId(jid, chatId, isGroup)
   const getUser = (jid) => dbGetUser(ctxUserId(jid))
   const setUser = (jid, obj) => dbSetUser(ctxUserId(jid), obj)
+  if (isGroup) await bootstrapScopedUserFromLegacy(ctxUserId(sender), sender, chatId)
   const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
   await maybeUpdateLastActive(sender, getUser)
 
