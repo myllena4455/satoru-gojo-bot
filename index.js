@@ -153,11 +153,7 @@ function jidToNumber(jid){
 }
 function getMentionedJids(msg, arg = []){
   const ctxMentions = msg?.message?.extendedTextMessage?.contextInfo?.mentionedJid || []
-  const argMentions = (arg || [])
-    .map(x => String(x || '').replace(/[^0-9]/g,''))
-    .filter(Boolean)
-    .map(toNumberJid)
-  return [...new Set([...ctxMentions, ...argMentions])]
+  return [...new Set(ctxMentions)]
 }
 function getFirstMentionedJid(msg, arg = []){
   return getMentionedJids(msg, arg)[0] || ''
@@ -1449,7 +1445,7 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
         const isPrivileged = admins.has(sender) || ownerContext
         if (!isPrivileged){
           try { await sock.sendMessage(chatId, { delete: msg.key }) } catch {}
-          await sock.sendMessage(chatId, { text:`🔗 Link bloqueado. @${jidToNumber(sender)}, links não são permitidos neste grupo.`, mentions:[sender] }, { quoted: msg })
+          await sock.sendMessage(chatId, { text:`🔗 Link bloqueado. @${jidToNumber(senderJid)}, links não são permitidos neste grupo.`, mentions:[senderJid] }, { quoted: msg })
           await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
           return
         }
@@ -1901,7 +1897,7 @@ chegue no meu nivel." — Satoru 🤭
         await sock.sendMessage(chatId, { text: caption, mentions }, { quoted: msg })
       }
     } catch {
-      await sock.sendMessage(chatId, { text: caption, mentions:[sender, ...marriedPartners] }, { quoted: msg })
+      await sock.sendMessage(chatId, { text: caption, mentions:[senderJid, ...marriedPartners] }, { quoted: msg })
     }
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
@@ -1977,9 +1973,9 @@ chegue no meu nivel." — Satoru 🤭
   }
 
   if (cmd==='roubar' || cmd==='steal'){
-    const num=(arg[0]||'').replace(/[^0-9]/g,'')
-    if (!num){ await sock.sendMessage(chatId, { text:'Use: .roubar <numero_com_ddd>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const attacker=await getUser(sender), victim=await getUser(toNumberJid(num))
+    const target = getFirstMentionedJid(msg, arg)
+    if (!target){ await sock.sendMessage(chatId, { text:'Use: .roubar @user' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const attacker=await getUser(sender), victim=await getUser(target)
     if ((victim.coins||0)<50){ await sock.sendMessage(chatId, { text:'Alvo com pouco dinheiro.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
     const success=Math.random() < Math.min(0.4 + calcPrecision(attacker), 0.85)
     if (success){
@@ -2870,7 +2866,7 @@ Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
     return
   }
   if (cmd==='ship' || cmd==='love' || cmd==='casal' || cmd==='kiss'){
-    const targets = getMentionedJids(msg, arg).filter(jid => jid !== sender)
+    const targets = getMentionedJids(msg, arg).filter(jid => jid !== senderJid)
     if (targets.length < 2){ await sock.sendMessage(chatId, { text:'Use: .ship @user1 @user2' }, { quoted: msg }); return }
 
     const j1 = targets[0]
@@ -2943,7 +2939,7 @@ bastante por todo esse grupo.” — Satoru 🤭
       'abraço': [`🤗 ${actor} deu um abraço apertado em ${dest}.`, `🤗 ${actor} abraçou ${dest} com energia positiva.`],
       carinho: [`🫶 ${actor} encheu ${dest} de carinho.`, `🫶 ${actor} fez carinho em ${dest} e ficou fofo demais.`]
     }
-    await sock.sendMessage(chatId, { text: pick(map[cmd] || map.carinho), mentions:[sender, target] }, { quoted: msg })
+    await sock.sendMessage(chatId, { text: pick(map[cmd] || map.carinho), mentions:[senderJid, target] }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
@@ -3120,10 +3116,9 @@ simplesmente o mais forte.” — Satoru 🤞
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
     if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem banir.' }, { quoted: msg }); return }
     const mentioned = getFirstMentionedJid(msg, arg)
-    const num = mentioned ? jidToNumber(mentioned) : (arg[0] && arg[0].replace(/[^0-9]/g,''))
-    if (!num){ await sock.sendMessage(chatId, { text:'Use: .ban <numero_com_ddd>' }, { quoted: msg }); return }
-    await sock.groupParticipantsUpdate(chatId, [toNumberJid(num)], 'remove')
-    await sock.sendMessage(chatId, { text:`Usuário ${num} removido do grupo.` }, { quoted: msg })
+    if (!mentioned){ await sock.sendMessage(chatId, { text:'Use: .ban @user' }, { quoted: msg }); return }
+    await sock.groupParticipantsUpdate(chatId, [mentioned], 'remove')
+    await sock.sendMessage(chatId, { text:`Usuário @${jidToNumber(mentioned)} removido do grupo.`, mentions:[mentioned] }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
