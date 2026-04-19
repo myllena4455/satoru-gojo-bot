@@ -16,6 +16,28 @@ import { handleForca } from './games/forca.js'
 import { handleRps } from './games/rps.js'
 ffmpeg.setFfmpegPath(ffmpegStatic)
 
+function loadEnvFile(filePath = path.resolve(process.cwd(), '.env')){
+  try {
+    if (!fs.existsSync(filePath)) return
+    const content = fs.readFileSync(filePath, 'utf8')
+    for (const line of content.split(/\r?\n/)){
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) continue
+      const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)
+      if (!match) continue
+      const key = match[1]
+      if (process.env[key] !== undefined && process.env[key] !== '') continue
+      let value = match[2].trim()
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))){
+        value = value.slice(1, -1)
+      }
+      process.env[key] = value
+    }
+  } catch {}
+}
+
+loadEnvFile()
+
 const logger = pino({ level: 'silent' }) // Silencia logs da Baileys
 let sock = null
 const AUTH_DIR = process.env.AUTH_DIR || './auth'
@@ -1416,7 +1438,7 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   if (!msg?.message) return
   const chatId = msg.key.remoteJid
   const sender = resolveSenderJid(msg)
-  const senderJid = toNumberJid(jidDigits(sender))
+  const senderJid = sender || toNumberJid(jidDigits(sender))
   const isGroup = chatId.endsWith('@g.us')
   const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
   await maybeUpdateLastActive(sender)
@@ -1819,7 +1841,11 @@ SATORU GOJO — BLOQUEADO
     const titulo = u.titulo || 'Novato'
     const casado = u.casado || 'Solteiro(a)'
     const conjugesText = marriedPartners.length
-      ? marriedPartners.map(jid => `@${jidToNumber(jid)}`).join(', ')
+      ? (await Promise.all(marriedPartners.map(async jid => {
+          const partner = await getUser(jid)
+          const label = partner.name || jidToNumber(jid)
+          return `@${jidToNumber(jid)} (${label})`
+        }))).join(', ')
       : 'Nenhum'
     const prof = getProfession(u)
     await db_mod.read(); db_mod.data.clans ||= {}
@@ -2480,23 +2506,19 @@ ${names}` }, { quoted: msg })
 
   if (cmd==='casar'){
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
-    const senderDigits = jidDigits(sender)
-    const senderJid = toNumberJid(senderDigits)
+    const proposerJid = sender
     const targetJids = getMentionedJids(msg, arg)
-      .map(jid => toNumberJid(jidDigits(jid)))
-      .filter(jid => jid !== senderJid)
-    const targetNumbers = targetJids.map(jidToNumber)
-    const uniqueTargetNumbers = [...new Set(targetNumbers)]
-    if (!uniqueTargetNumbers.length || uniqueTargetNumbers.length > 3){
+      .filter(jid => jid !== proposerJid)
+    const uniqueTargetJids = [...new Set(targetJids)]
+    if (!uniqueTargetJids.length || uniqueTargetJids.length > 3){
       await sock.sendMessage(chatId, { text:'Use: .casar @user ou .casar @user1 @user2 @user3 (casamento até 4 pessoas).' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
     }
 
-    const participants = [senderJid, ...uniqueTargetNumbers.map(toNumberJid)]
-    const participantDigits = [senderDigits, ...uniqueTargetNumbers]
+    const participants = [proposerJid, ...uniqueTargetJids]
     const uniqueParticipants = [...new Set(participants)]
-    if (uniqueParticipants.length !== participants.length || new Set(participantDigits).size !== participantDigits.length){
+    if (uniqueParticipants.length !== participants.length){
       await sock.sendMessage(chatId, { text:'Você não pode repetir pessoas na proposta de casamento.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
       return
@@ -2520,20 +2542,25 @@ ${names}` }, { quoted: msg })
 
     const targets = uniqueParticipants.slice(1)
     const proposal = {
-      proposer: senderJid,
+      proposer: proposerJid,
       participants: uniqueParticipants,
       targets,
-      accepted: new Set([senderJid]),
+      accepted: new Set([proposerJid]),
       createdAt: Date.now()
     }
     await setMarriageProposal(chatId, proposal)
 
-    const user1 = jidToNumber(senderJid)
+    const participantLabels = new Map(await Promise.all(uniqueParticipants.map(async jid => {
+      const user = await getUser(jid)
+      return [jid, user.name || jidToNumber(jid)]
+    })))
+    const user1 = jidToNumber(proposerJid)
+    const user1Label = participantLabels.get(proposerJid) || user1
     const mentions = uniqueParticipants
-    const proposalTargetsLine = targets.map(jid => `@${jidToNumber(jid)}`).join(', ')
+    const proposalTargetsLine = targets.map(jid => `@${jidToNumber(jid)} (${participantLabels.get(jid) || jidToNumber(jid)})`).join(', ')
     const inviteLine = targets.length === 1
-      ? `ㅤ  @${jidToNumber(targets[0])}, o @${user1}`
-      : `ㅤ  ${proposalTargetsLine}, o @${user1}`
+      ? `ㅤ  @${jidToNumber(targets[0])} (${participantLabels.get(targets[0]) || jidToNumber(targets[0])}), o @${user1} (${user1Label})`
+      : `ㅤ  ${proposalTargetsLine}, o @${user1} (${user1Label})`
 
     const proposalText = `💍 ㅤ   ▬▬▬ㅤ
 CONTRATO DE VÍNCULO
@@ -2610,7 +2637,10 @@ Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
     await deleteMarriageProposal(chatId)
 
     await sock.sendMessage(chatId, {
-      text:`💞 Casamento confirmado com consenso de todos!\nParticipantes: ${proposal.participants.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
+      text:`💞 Casamento confirmado com consenso de todos!\nParticipantes: ${(await Promise.all(proposal.participants.map(async jid => {
+        const user = await getUser(jid)
+        return `@${jidToNumber(jid)} (${user.name || jidToNumber(jid)})`
+      }))).join(', ')}`,
       mentions: proposal.participants
     }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
