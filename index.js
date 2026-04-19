@@ -466,6 +466,25 @@ async function sendReactionImage(chatId, msg, texts){ try {
     const buffer = fs.readFileSync(imgFile)
     await sock.sendMessage(chatId, { image: buffer, caption: pick(texts) }, { quoted: msg })
   } catch {} }
+async function sendReactionImageCaption(chatId, msg, caption, mentions=[]){
+  try {
+    const images = [
+      'reaction1.jpeg','reaction2.jpeg','reaction3.jpeg','reaction4.jpeg','reaction5.jpeg','reaction6.jpeg',
+      'reaction1.jpg','reaction2.jpg','reaction3.jpg','reaction4.jpg','reaction5.jpg','reaction6.jpg',
+      'reaction1.png','reaction2.png','reaction3.png','reaction4.png','reaction5.png','reaction6.png'
+    ]
+    const existing = images.filter(name => fs.existsSync(path.join('./assets', name)))
+    if (!existing.length){
+      await sock.sendMessage(chatId, { text: caption, mentions }, { quoted: msg })
+      return
+    }
+    const chosen = pick(existing)
+    const buffer = fs.readFileSync(path.join('./assets', chosen))
+    await sock.sendMessage(chatId, { image: buffer, caption, mentions }, { quoted: msg })
+  } catch {
+    await sock.sendMessage(chatId, { text: caption, mentions }, { quoted: msg })
+  }
+}
 async function sendBlockedReactionImage(chatId, msg){
   const texts = [
     '😏 Achou que ia usar o mais forte de graça? Sonha não.',
@@ -540,7 +559,16 @@ SATORU GOJO — COMANDO INVÁLIDO
   await sendReactionImage(chatId, msg, payload.texts)
   await sock.sendMessage(chatId, { text: payload.block }, { quoted: msg })
 }
-async function maybeUpdateLastActive(userId){ const u = await getUser(userId); u.lastActive = Date.now(); await saveDB(); return u }
+async function maybeUpdateLastActive(userId){
+  const u = await getUser(userId)
+  u.lastActive = Date.now()
+  u.level = lvlForXP(u.xp || 0)
+  const married = normalizeMarriedList(u.marriedTo).map(toNumberJid)
+  u.marriedTo = married.length ? [...new Set(married)] : null
+  setMaritalStatusLabel(u)
+  await saveDB()
+  return u
+}
 // ===== Downloader config (edit in download.config.json) =====
 
 import fsPromises from 'fs/promises'
@@ -717,6 +745,7 @@ async function askAI(prompt, userName='Usuário'){
 
 // ===== Anti-flood =====
 const lastCmdAt = new Map(), cmdWindow = new Map(), floodLockUntil = new Map(), lastStickerAt = new Map()
+const marriageProposals = new Map()
 const COOLDOWN_MS=1500, WINDOW_MS=30000, WINDOW_MAX=10, FLOOD_LOCK_MS=30000
 function canRunCommand(userId){
   const now=Date.now(), lock=floodLockUntil.get(userId)||0
@@ -727,6 +756,48 @@ function canRunCommand(userId){
   lastCmdAt.set(userId, now); return {ok:true}
 }
 function canSendSticker(userId){ const now=Date.now(), last=lastStickerAt.get(userId)||0; if(now-last<1000) return false; lastStickerAt.set(userId, now); return true }
+
+function normalizeMarriedList(value){
+  if (Array.isArray(value)) return value.filter(Boolean)
+  if (!value) return []
+  return [value]
+}
+
+function setMaritalStatusLabel(user){
+  user.casado = normalizeMarriedList(user.marriedTo).length ? 'Casado(a)' : 'Solteiro(a)'
+}
+
+function progressBar(value, max=100, size=10){
+  const safeMax = max > 0 ? max : 100
+  const ratio = Math.max(0, Math.min(1, value / safeMax))
+  const fill = Math.round(ratio * size)
+  return `[${'▰'.repeat(fill)}${'▱'.repeat(size - fill)}]`
+}
+
+function renderGojoRankCard({ title, quote, introLines, topLines, statusLines, footer }){
+  const intro = (introLines || []).join('\n')
+  const top = (topLines || []).join('\n') || 'ㅤ ╰  Sem dados suficientes.'
+  const status = (statusLines || []).join('\n')
+  return `🏆 ㅤ   ▬▬▬ㅤ
+${title}
+ㅤ 👁️👁️ㅤ  "${quote}"  ㅤ .
+
+┌──────────────────────┐
+${intro}
+└──────────────────────┘
+
+🥇 ㅤ TOP 5:
+
+${top}
+
+📊 ㅤ STATUS:
+
+${status}
+
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+${footer}
+◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤`
+}
 
 // ===== UI =====
 
@@ -844,14 +915,25 @@ GOJO — BRINCADEIRAS
 
 📊 ㅤ RANKS & STATUS:
 
-ㅤ ╰ .rankpau 🍌 ㅤ ╰ .rankgostosos 🔥
-ㅤ ╰ .rankghost 👻 ╰ .inativos 💤
+ㅤ ╰ .rank ㅤ ╰ .rankxp
+ㅤ ╰ .rankcoins ㅤ ╰ .rankbanco
+ㅤ ╰ .rankpoder ㅤ ╰ .rankativos
+ㅤ ╰ .rankghost ㅤ ╰ .inativos
+ㅤ ╰ .rankprof ㅤ ╰ .rankpau
+ㅤ ╰ .rankgostosos
+
+💞 ㅤ INTERAÇÕES SOCIAIS:
+
+ㅤ ╰ .beijo @user ㅤ ╰ .abraco @user
+ㅤ ╰ .carinho @user ㅤ ╰ .cantada @user
+ㅤ ╰ .poesia ㅤ ╰ .musica
 
 🎲 ㅤ SORTE & JOGOS:
 
 ㅤ ╰ .dado 🎲 ㅤ ╰ .moeda 🪙
 ㅤ ╰ .adivinha 🔢 ╰ .sorteio ⚖️
 ㅤ ╰ .bola8 🔮 ㅤ ╰ .quem ❓
+ㅤ ╰ .forca ㅤ ╰ .letra <letra>
 
 🎭 ㅤ ZUEIRA & REAÇÃO:
 
@@ -944,7 +1026,14 @@ GOJO — GUIA DE COMANDOS
 ㅤ ╰ .work ─ Trabalhar por coins 💸
 ╰ .loja / .buy ─ Ver e comprar itens 🛍️
 ╰ .enviar ─ Mandar grana pra alguém 💸
-╰ .rank ─ Top mais ricos do bot 🏆
+╰ .rank / .rankcoins / .rankxp ─ Ranks do grupo 🏆
+
+🎡 ㅤ BRINCADEIRAS:
+
+ㅤ ╰ .beijo / .abraco / .carinho / .cantada 💞
+╰ .poesia / .musica ─ Aleatórios ✨
+╰ .forca / .letra ─ Jogo da forca 😵‍💫
+╰ .rankpoder / .rankativos / .rankghost 📊
 
 🚫 ㅤ CONTROLE (ADMIN/VIP):
 
@@ -1514,7 +1603,7 @@ SATORU GOJO — BLOQUEADO
 
 💳 ㅤ CONTATO PARA LICENÇA:
 
-ㅤ ╰ WhatsApp: 5581986010094
+ㅤ 
 ㅤ ╰ Link: https://wa.me/5581986010094
 
 ⚙️ ㅤ REGRAS DE USO:
@@ -1583,6 +1672,11 @@ SATORU GOJO — BLOQUEADO
   if (cmd==='perfil'){
     const u = await getUser(sender)
     const numero = jidToNumber(sender)
+    const marriedPartners = normalizeMarriedList(u.marriedTo).map(toNumberJid)
+    u.level = lvlForXP(u.xp || 0)
+    u.marriedTo = marriedPartners.length ? [...new Set(marriedPartners)] : null
+    setMaritalStatusLabel(u)
+    await saveDB()
     const nome = u.name || msg.pushName || 'Usuário'
     const level = u.level || 1, xp = u.xp || 0, coins=u.coins||0, bank=u.bank||0
     const items=(u.items||[]).length
@@ -1591,6 +1685,9 @@ SATORU GOJO — BLOQUEADO
     const age = u.createdAt ? timeSince(u.createdAt) : '—'
     const titulo = u.titulo || 'Novato'
     const casado = u.casado || 'Solteiro(a)'
+    const conjugesText = marriedPartners.length
+      ? marriedPartners.map(jid => `@${jidToNumber(jid)}`).join(', ')
+      : 'Nenhum'
     const prof = getProfession(u)
     await db_mod.read(); db_mod.data.clans ||= {}
     const clan = u.clan ? db_mod.data.clans[u.clan]?.name || u.clan : 'Sem Clã'
@@ -1613,7 +1710,7 @@ PERFIL DE FEITICEIRO
 👤 IDENTIDADE:
 
 ㅤ ╰  Nome: ${nome}
-ㅤ ╰  Numero: ${numero}
+ㅤ ╰  Numero: @${numero}
 ㅤ ╰  Nivel: ${level} ✨ ${xp} XP
 
 ⚔️ ATRIBUTOS:
@@ -1625,6 +1722,7 @@ PERFIL DE FEITICEIRO
 💍 SOCIAL & CLAN:
 
 ㅤ ╰  Estado: ${casado} 💍
+ㅤ ╰  Cônjuge(s): ${conjugesText}
 ㅤ ╰  Clã: ${clan} 🛡️
 ㅤ ╰  Filhos: ${filhos} 👶
 
@@ -1656,14 +1754,15 @@ chegue no meu nivel." — Satoru 🤭
 
     try {
       const purl = await sock.profilePictureUrl(sender,'image')
+      const mentions = [sender, ...marriedPartners]
       if (purl){
         const img = await fetchBuffer(purl)
-        await sock.sendMessage(chatId, { image: img, caption }, { quoted: msg })
+        await sock.sendMessage(chatId, { image: img, caption, mentions }, { quoted: msg })
       } else {
-        await sock.sendMessage(chatId, { text: caption }, { quoted: msg })
+        await sock.sendMessage(chatId, { text: caption, mentions }, { quoted: msg })
       }
     } catch {
-      await sock.sendMessage(chatId, { text: caption }, { quoted: msg })
+      await sock.sendMessage(chatId, { text: caption, mentions:[sender, ...marriedPartners] }, { quoted: msg })
     }
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
@@ -2245,18 +2344,152 @@ ${names}` }, { quoted: msg })
   }
 
   if (cmd==='casar'){
-    const target = arg[0] || ''
-    if (!target || !target.includes('@')){ await sock.sendMessage(chatId, { text:'Use: .casar @user' }, { quoted: msg }); return }
-    const u = await getUser(sender)
-    if (u.marriedTo){ await sock.sendMessage(chatId, { text:'Você já é casado! Use .divorciar para terminar.' }, { quoted: msg }); return }
-    await sock.sendMessage(chatId, { text:`💕 ${u.name} pediu ${target} em casamento. Use .aceitar ou .recusar` }, { quoted: msg })
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
+    const targetNumbers = [...new Set(arg
+      .filter(x => x.includes('@'))
+      .map(x => x.replace(/[^0-9]/g,''))
+      .filter(Boolean))]
+    if (!targetNumbers.length || targetNumbers.length > 2){
+      await sock.sendMessage(chatId, { text:'Use: .casar @user ou .casar @user1 @user2 (casamento a 3).' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+
+    const participants = [sender, ...targetNumbers.map(toNumberJid)]
+    const uniqueParticipants = [...new Set(participants)]
+    if (uniqueParticipants.length !== participants.length){
+      await sock.sendMessage(chatId, { text:'Você não pode repetir pessoas na proposta de casamento.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+
+    for (const jid of uniqueParticipants){
+      const u = await getUser(jid)
+      if (normalizeMarriedList(u.marriedTo).length){
+        await sock.sendMessage(chatId, { text:`@${jidToNumber(jid)} já está em um casamento.`, mentions:[jid] }, { quoted: msg })
+        await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+        return
+      }
+    }
+
+    const activeProposal = marriageProposals.get(chatId)
+    if (activeProposal){
+      await sock.sendMessage(chatId, { text:'Já existe um pedido de casamento pendente neste grupo. Responda com .sim ou .nao.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+
+    const targets = uniqueParticipants.slice(1)
+    const proposal = {
+      proposer: sender,
+      participants: uniqueParticipants,
+      targets,
+      accepted: new Set([sender]),
+      createdAt: Date.now()
+    }
+    marriageProposals.set(chatId, proposal)
+
+    const user1 = jidToNumber(sender)
+    const mentions = uniqueParticipants
+    const proposalTargetsLine = targets.map(jid => `@${jidToNumber(jid)}`).join(', ')
+    const inviteLine = targets.length === 1
+      ? `ㅤ  @${jidToNumber(targets[0])}, o @${user1}`
+      : `ㅤ  ${proposalTargetsLine}, o @${user1}`
+
+    const proposalText = `💍 ㅤ   ▬▬▬ㅤ
+CONTRATO DE VÍNCULO
+ㅤ 👁️👁️ㅤ  "E aí? Vai aceitar ou vai fugir?"  ㅤ .
+
+┌──────────────────────┐
+${inviteLine}
+ㅤ  quer selar um destino com
+ㅤ  voce. O que me diz? Nao me
+ㅤ  faça perder tempo esperando. 🍬
+└──────────────────────┘
+
+💞 ㅤ A PROPOSTA:
+ㅤ ╰  Proponente: @${user1}
+ㅤ ╰  Destinatário(s): ${proposalTargetsLine}
+
+⚖️ ㅤ SUA DECISÃO:
+ㅤ ╰  Para aceitar use: .sim ✅
+ㅤ ╰  Para recusar use: .nao ❌
+
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+"Escolha logo. Se demorar muito, eu decido por vocês... e voce nao vai gostar."
+◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢`
+    await sock.sendMessage(chatId, { text: proposalText, mentions }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+
+  if (cmd==='sim' || cmd==='nao'){
+    const proposal = marriageProposals.get(chatId)
+    if (!proposal){
+      await sock.sendMessage(chatId, { text:'Não há pedido de casamento pendente neste grupo.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+    if (!proposal.participants.includes(sender)){
+      await sock.sendMessage(chatId, { text:'Somente pessoas envolvidas no pedido podem responder.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+
+    if (cmd==='nao'){
+      marriageProposals.delete(chatId)
+      await sock.sendMessage(chatId, { text:`❌ Pedido de casamento recusado por @${jidToNumber(sender)}.`, mentions:[sender] }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+
+    if (proposal.accepted.has(sender)){
+      await sock.sendMessage(chatId, { text:'Você já confirmou com .sim.' }, { quoted: msg })
+      return
+    }
+
+    proposal.accepted.add(sender)
+    const pending = proposal.participants.filter(jid => !proposal.accepted.has(jid))
+    if (pending.length){
+      await sock.sendMessage(chatId, {
+        text:`✅ @${jidToNumber(sender)} confirmou.
+Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
+        mentions:[sender, ...pending]
+      }, { quoted: msg })
+      await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+      return
+    }
+
+    for (const jid of proposal.participants){
+      const u = await getUser(jid)
+      const current = normalizeMarriedList(u.marriedTo)
+      const partners = proposal.participants.filter(x => x !== jid)
+      u.marriedTo = [...new Set([...current, ...partners])]
+      setMaritalStatusLabel(u)
+    }
+    await saveDB()
+    marriageProposals.delete(chatId)
+
+    await sock.sendMessage(chatId, {
+      text:`💞 Casamento confirmado com consenso de todos!\nParticipantes: ${proposal.participants.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
+      mentions: proposal.participants
+    }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
 
   if (cmd==='divorciar'){
     const u = await getUser(sender)
-    if (!u.marriedTo){ await sock.sendMessage(chatId, { text:'Você não está casado.' }, { quoted: msg }); return }
+    const partners = normalizeMarriedList(u.marriedTo)
+    if (!partners.length){ await sock.sendMessage(chatId, { text:'Você não está casado.' }, { quoted: msg }); return }
     u.marriedTo = null
+    setMaritalStatusLabel(u)
+    for (const jid of partners){
+      const partner = await getUser(jid)
+      const list = normalizeMarriedList(partner.marriedTo).filter(x => x !== sender)
+      partner.marriedTo = list.length ? list : null
+      setMaritalStatusLabel(partner)
+    }
     await saveDB()
     await sock.sendMessage(chatId, { text:'💔 Divórcio oficializado. Tudo terminado com dignidade.' }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
@@ -2266,9 +2499,17 @@ ${names}` }, { quoted: msg })
   if (cmd==='trair'){
     const u = await getUser(sender)
     const leftParts = []
-    if (u.marriedTo){
+    const partners = normalizeMarriedList(u.marriedTo)
+    if (partners.length){
       leftParts.push('casamento')
       u.marriedTo = null
+      setMaritalStatusLabel(u)
+      for (const jid of partners){
+        const partner = await getUser(jid)
+        const list = normalizeMarriedList(partner.marriedTo).filter(x => x !== sender)
+        partner.marriedTo = list.length ? list : null
+        setMaritalStatusLabel(partner)
+      }
       u.betrayalTitle = 'Corno(a)'
     }
     await db_mod.read(); db_mod.data.clans ||= {}
@@ -2295,7 +2536,7 @@ ${names}` }, { quoted: msg })
 
   if (cmd==='adotar'){
     const u = await getUser(sender)
-    if (!u.marriedTo){ await sock.sendMessage(chatId, { text:'Você precisa estar casado para adotar!' }, { quoted: msg }); return }
+    if (!normalizeMarriedList(u.marriedTo).length){ await sock.sendMessage(chatId, { text:'Você precisa estar casado para adotar!' }, { quoted: msg }); return }
     if ((u.coins||0) < 500){ await sock.sendMessage(chatId, { text:'Você precisa de 500 coins para adotar.' }, { quoted: msg }); return }
     u.coins -= 500
     const childName = `Filho${u.children?.length || 0 + 1}`
@@ -2321,49 +2562,328 @@ ${names}` }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
-  if (cmd==='rank'){
-    const top = await getTopBy('coins', 5)
-    const body = top.length ? top.map((x,i)=>`${i+1}. ${x.id} — ${x.v} coins`).join('\n') : 'Ninguém ainda.'
-    await sock.sendMessage(chatId, { text:`🏆 RANK\n${body}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
-  }
-  if (cmd==='rankbanco' || cmd==='rankbank'){
-    const top = await getTopBy('bank', 5)
-    const body = top.length ? top.map((x,i)=>`${i+1}. ${x.id} — ${x.v} bank`).join('\n') : 'Ninguém ainda.'
-    await sock.sendMessage(chatId, { text:`🏦 RANK BANCO\n${body}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
-  }
-  if (cmd==='rankprof' || cmd==='rankprofissao'){
-    const data = db_mod.data
-    const map={}; for(const [id,u] of Object.entries(data.users||{})){ if(!u.job) continue; map[u.job]=(map[u.job]||0)+(u.coins||0) }    const list = Object.entries(map).sort((a,b)=>b[1]-a[1]).map(([job,coins],i)=>`${i+1}. ${job} — ${coins}`).join('\n') || '—'
-    await sock.sendMessage(chatId, { text:`👔 RANK POR PROFISSÃO\n${list}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
-  }
-  if (cmd==='rankghost' || cmd==='rankinativo'){
-    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
+  if (['rank','rankxp','rankcoins','rankricos','rankbanco','rankbank','rankpoder','rankativos','rankghost','rankinativo','inativos','topinativos','rankprof','rankprofissao','rankpau','rankgostosos'].includes(cmd)){
+    if (!isGroup){
+      await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+
     const meta = await sock.groupMetadata(chatId)
-    const members = meta.participants.map(p=>p.id)
-    const users = Object.entries(db_mod.data.users||{}).filter(([id])=>members.includes(id) && !isNewbie(db_mod.data.users[id]))
-    users.sort((a,b)=> (a[1].lastActive||0) - (b[1].lastActive||0))
-    const body = users.slice(0,5).map(([id,u],i)=>`${i+1}. ${id} — ${timeSince(u.lastActive||0)} inativo`).join('\n') || 'Nenhum usuário apto.'
-    await sock.sendMessage(chatId, { text:`👻 RANK GHOST\n${body}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
-  }
-  if (cmd==='inativos' || cmd==='topinativos'){
-    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
-    const meta = await sock.groupMetadata(chatId)
-    const members = meta.participants.map(p=>p.id)
-    const users = Object.entries(db_mod.data.users||{}).filter(([id])=>members.includes(id) && !isNewbie(db_mod.data.users[id]))
-    users.sort((a,b)=> (a[1].lastActive||0) - (b[1].lastActive||0))
-    const body = users.slice(0,3).map(([id,u],i)=>`${i+1}. ${id} — ${timeSince(u.lastActive||0)}`).join('\n') || 'Nenhum usuário apto.'
-    await sock.sendMessage(chatId, { text:`🛌 TOP 3 INATIVOS\n${body}` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
-  }
-  if (cmd==='ship' || cmd==='love' || cmd==='casal' || cmd==='kiss'){
-    const targetA = arg[0]||''
-    const targetB = arg[1]||''
-    if (!targetA || !targetB){ await sock.sendMessage(chatId, { text:'Use: .ship @user1 @user2' }, { quoted: msg }); return }
-    const score = Math.floor(Math.random()*101)
-    const hearts = score > 80 ? '💖💞' : score > 50 ? '💘' : '💔'
-    await sock.sendMessage(chatId, { text:`${cmd.toUpperCase()} ${targetA} + ${targetB}\nCompatibilidade: ${score}% ${hearts}` }, { quoted: msg })
+    const members = [...new Set(meta.participants.map(p => p.id))]
+    const stats = []
+    for (const id of members){
+      const u = await getUser(id)
+      stats.push({
+        id,
+        xp: u.xp || 0,
+        level: u.level || lvlForXP(u.xp || 0),
+        coins: u.coins || 0,
+        bank: u.bank || 0,
+        power: calcPower(u),
+        lastActive: u.lastActive || 0,
+        job: u.job || null
+      })
+    }
+
+    const senderStat = stats.find(x => x.id === sender) || { xp:0, level:1, coins:0, bank:0, power:0, lastActive:0 }
+    const senderPosBy = (arr) => Math.max(1, arr.findIndex(x => x.id === sender) + 1)
+    const topLinesFrom = (arr, fn) => arr.slice(0, 5).map((x, i) => `ㅤ ╰ ${i+1}. @${jidToNumber(x.id)} — ${fn(x)}`)
+
+    let title = 'RANKING — GOJO'
+    let quote = 'Tentem não me decepcionar.'
+    let topLines = []
+    let statusLines = []
+    let mentions = []
+
+    if (cmd==='rank' || cmd==='rankxp'){
+      const base = cmd==='rank'
+        ? [...stats].sort(() => Math.random() - 0.5).slice(0, Math.min(5, stats.length)).sort((a,b)=>b.xp-a.xp)
+        : [...stats].sort((a,b)=>b.xp-a.xp)
+      title = cmd==='rank' ? 'RANKING DE PODER — GOJO' : 'RANKING DE XP — GOJO'
+      quote = cmd==='rank' ? 'Quem são os menos inúteis hoje?' : 'Experiência não mente.'
+      topLines = topLinesFrom(base, x => `${x.xp} XP`)
+      const ref = [...stats].sort((a,b)=>b.xp-a.xp)
+      statusLines = [
+        `ㅤ ╰ Sua posição: ${senderPosBy(ref)}º`,
+        `ㅤ ╰ Seu nível: ${senderStat.level}`,
+        `ㅤ ╰ Progresso: ${progressBar((senderStat.xp % 100), 100)} ${(senderStat.xp % 100)}%`
+      ]
+      mentions = base.slice(0,5).map(x => x.id)
+    } else if (cmd==='rankcoins' || cmd==='rankricos'){
+      const sorted = [...stats].sort((a,b)=>b.coins-a.coins)
+      title = 'RANKING DE COINS — GOJO'
+      quote = 'Dinheiro não compra classe... mas ajuda.'
+      topLines = topLinesFrom(sorted, x => `${x.coins} coins`)
+      statusLines = [
+        `ㅤ ╰ Sua posição: ${senderPosBy(sorted)}º`,
+        `ㅤ ╰ Sua carteira: ${senderStat.coins} coins`,
+        `ㅤ ╰ Meta de luxo: ${progressBar(Math.min(senderStat.coins, 10000), 10000)} ${Math.min(100, Math.floor((senderStat.coins/10000)*100))}%`
+      ]
+      mentions = sorted.slice(0,5).map(x => x.id)
+    } else if (cmd==='rankbanco' || cmd==='rankbank'){
+      const sorted = [...stats].sort((a,b)=>b.bank-a.bank)
+      title = 'RANKING DE BANCO — GOJO'
+      quote = 'Guardar também é poder.'
+      topLines = topLinesFrom(sorted, x => `${x.bank} bank`)
+      statusLines = [
+        `ㅤ ╰ Sua posição: ${senderPosBy(sorted)}º`,
+        `ㅤ ╰ Seu saldo banco: ${senderStat.bank}`,
+        `ㅤ ╰ Reserva: ${progressBar(Math.min(senderStat.bank, 20000), 20000)} ${Math.min(100, Math.floor((senderStat.bank/20000)*100))}%`
+      ]
+      mentions = sorted.slice(0,5).map(x => x.id)
+    } else if (cmd==='rankpoder'){
+      const sorted = [...stats].sort((a,b)=>b.power-a.power)
+      title = 'RANKING DE PODER BRUTO — GOJO'
+      quote = 'Agora sim algo divertido.'
+      topLines = topLinesFrom(sorted, x => `${x.power} de força`)
+      statusLines = [
+        `ㅤ ╰ Sua posição: ${senderPosBy(sorted)}º`,
+        `ㅤ ╰ Seu poder: ${senderStat.power}`,
+        `ㅤ ╰ Escala de ameaça: ${progressBar(Math.min(senderStat.power, 500), 500)} ${Math.min(100, Math.floor((senderStat.power/500)*100))}%`
+      ]
+      mentions = sorted.slice(0,5).map(x => x.id)
+    } else if (cmd==='rankativos'){
+      const sorted = [...stats].sort((a,b)=>b.lastActive-a.lastActive)
+      title = 'RANKING DOS MAIS ATIVOS — GOJO'
+      quote = 'Pelo menos alguém está acordado.'
+      topLines = topLinesFrom(sorted, x => x.lastActive ? `ativo há ${timeSince(x.lastActive)}` : 'sem atividade')
+      statusLines = [
+        `ㅤ ╰ Sua posição: ${senderPosBy(sorted)}º`,
+        `ㅤ ╰ Última atividade: ${senderStat.lastActive ? timeSince(senderStat.lastActive) : 'sem registro'}`,
+        `ㅤ ╰ Frequência: ${progressBar(Math.min(Date.now()-senderStat.lastActive, 24*60*60*1000), 24*60*60*1000)} recente`
+      ]
+      mentions = sorted.slice(0,5).map(x => x.id)
+    } else if (cmd==='rankghost' || cmd==='rankinativo' || cmd==='inativos' || cmd==='topinativos'){
+      const sorted = [...stats].sort((a,b)=>(a.lastActive||0)-(b.lastActive||0))
+      title = 'RANKING DOS INATIVOS — GOJO'
+      quote = 'Esses aqui só aparecem no velório.'
+      topLines = topLinesFrom(sorted, x => x.lastActive ? `${timeSince(x.lastActive)} sem dar sinal` : 'nunca apareceu')
+      statusLines = [
+        `ㅤ ╰ Sua posição: ${senderPosBy(sorted)}º`,
+        `ㅤ ╰ Seu sumiço: ${senderStat.lastActive ? timeSince(senderStat.lastActive) : 'nunca ativo'}`,
+        `ㅤ ╰ Risco de ghost: ${progressBar(Math.min((Date.now()-senderStat.lastActive), 7*24*60*60*1000), 7*24*60*60*1000)} alto`
+      ]
+      mentions = sorted.slice(0,5).map(x => x.id)
+    } else if (cmd==='rankprof' || cmd==='rankprofissao'){
+      const byJob = {}
+      for (const item of stats){
+        if (!item.job) continue
+        byJob[item.job] ||= { job:item.job, count:0, totalCoins:0 }
+        byJob[item.job].count += 1
+        byJob[item.job].totalCoins += item.coins
+      }
+      const sorted = Object.values(byJob).sort((a,b)=>b.totalCoins-a.totalCoins)
+      title = 'RANKING DE PROFISSÕES — GOJO'
+      quote = 'Quero ver quem trabalha de verdade.'
+      topLines = sorted.slice(0,5).map((x,i)=>`ㅤ ╰ ${i+1}. ${x.job} — ${x.totalCoins} coins (${x.count} membros)`)
+      statusLines = [
+        `ㅤ ╰ Profissões no grupo: ${sorted.length}`,
+        `ㅤ ╰ Seu job: ${senderStat.job || 'Nenhum'}`,
+        `ㅤ ╰ Economia geral: ${stats.reduce((s,x)=>s+x.coins,0)} coins`
+      ]
+      mentions = []
+    } else if (cmd==='rankpau' || cmd==='rankgostosos'){
+      const targetNum = (arg[0] || '').replace(/[^0-9]/g, '')
+      const targetJid = targetNum ? toNumberJid(targetNum) : null
+      const pool = [...stats]
+      const selected = []
+      if (targetJid){
+        const targetStat = pool.find(x => x.id === targetJid)
+        if (targetStat) selected.push(targetStat)
+      }
+      while (selected.length < 5 && pool.length){
+        const pickOne = pool.splice(Math.floor(Math.random()*pool.length), 1)[0]
+        if (!selected.find(x => x.id === pickOne.id)) selected.push(pickOne)
+      }
+      const scored = selected.map(x => ({ ...x, score: Math.floor(Math.random()*101) })).sort((a,b)=>b.score-a.score)
+      title = cmd==='rankpau' ? 'RANKPAU DO INFINITO — GOJO' : 'RANKGOSTOSOS DO INFINITO — GOJO'
+      quote = 'Relatório 100% científico. Confia.'
+      topLines = scored.map((x,i)=>`ㅤ ╰ ${i+1}. @${jidToNumber(x.id)} — ${x.score}%`)
+      statusLines = [
+        `ㅤ ╰ Sua posição: ${Math.max(1, scored.findIndex(x=>x.id===sender)+1)}º`,
+        `ㅤ ╰ Sua nota: ${scored.find(x=>x.id===sender)?.score ?? Math.floor(Math.random()*101)}%`,
+        `ㅤ ╰ Ego no talo: ${progressBar(99,100)} 99%`
+      ]
+      mentions = scored.map(x => x.id)
+    }
+
+    const rankText = renderGojoRankCard({
+      title,
+      quote,
+      introLines: [
+        'ㅤ  Aqui vai o relatório do momento,',
+        'ㅤ  com dados frios e julgamento quente.',
+        'ㅤ  Se ficou embaixo, treina mais.',
+        'ㅤ  Se ficou em cima, não se ache. 🍬✨'
+      ],
+      topLines,
+      statusLines,
+      footer: '“Continue subindo... talvez um dia você chegue perto de mim.” — Satoru 🤞'
+    })
+
+    await sock.sendMessage(chatId, { text: rankText, mentions }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
+  if (cmd==='ship' || cmd==='love' || cmd==='casal' || cmd==='kiss'){
+    const targetAraw = arg[0] || ''
+    const targetBraw = arg[1] || ''
+    const n1 = targetAraw.replace(/[^0-9]/g,'')
+    const n2 = targetBraw.replace(/[^0-9]/g,'')
+    if (!n1 || !n2){ await sock.sendMessage(chatId, { text:'Use: .ship @user1 @user2' }, { quoted: msg }); return }
+
+    const j1 = toNumberJid(n1)
+    const j2 = toNumberJid(n2)
+    const score = Math.floor(Math.random()*101)
+    const filled = Math.max(0, Math.min(10, Math.floor(score / 10)))
+    const bar = `[${'▰'.repeat(filled)}${'▱'.repeat(10 - filled)}]`
+    const heart = score >= 80 ? '💖' : (score >= 50 ? '💘' : '💔')
+    let verdictA = ''
+    let verdictB = ''
+    if (score >= 85){
+      verdictA = 'Compatibilidade absurda. Ate eu aprovei.'
+      verdictB = 'Se estragar isso, vai ser talento.'
+    } else if (score >= 60){
+      verdictA = 'Tem potencial, mas nao vacila.'
+      verdictB = 'Com esforço, talvez vire algo lendário.'
+    } else if (score >= 30){
+      verdictA = 'Instável. Vai precisar de terapia e sorte.'
+      verdictB = 'Ainda da pra salvar... talvez.'
+    } else {
+      verdictA = 'Nem com uma Expansão de Domínio.'
+      verdictB = 'isso aqui tem jeito. Desistam.'
+    }
+
+    const shipText = `💞 ㅤ   ▬▬▬ㅤ
+ANÁLISE DOS SIX EYES
+ㅤ 👁️👁️ㅤ  "Deixa eu ver se isso vinga..."  ㅤ .
+
+┌──────────────────────┐
+ㅤ  Minha visão não engana. Analisei
+ㅤ  a energia de vocês e o resultado
+ㅤ  é... bem, vocês vão precisar de
+ㅤ  um milagre. Ou de mim. 🍬✨
+└──────────────────────┘
+
+🔥 ㅤ O CASAL:
+
+ㅤ ╰  @${jidToNumber(j1)} + @${jidToNumber(j2)}
+
+📊 ㅤ COMPATIBILIDADE:
+
+${bar} ${score}% ${heart}
+
+⚖️ ㅤ VEREDITO:
+
+ㅤ ╰  ${verdictA}
+ㅤ ╰  ${verdictB}
+
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+“Sorte a de vocês que eu sou lindo o
+bastante por todo esse grupo.” — Satoru 🤭
+◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤`
+    await sock.sendMessage(chatId, { text: shipText, mentions:[j1, j2] }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+
+  if (cmd==='beijo' || cmd==='abraco' || cmd==='abraço' || cmd==='carinho'){
+    const targetRaw = arg[0] || ''
+    const num = targetRaw.replace(/[^0-9]/g,'')
+    if (!num){
+      await sock.sendMessage(chatId, { text:`Use: .${cmd} @user` }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+    const target = toNumberJid(num)
+    const actor = `@${jidToNumber(sender)}`
+    const dest = `@${jidToNumber(target)}`
+    const map = {
+      beijo: [`💋 ${actor} mandou um beijo poderoso para ${dest}.`, `💋 ${actor} beijou ${dest} e o grupo inteiro viu.`],
+      abraco: [`🤗 ${actor} deu um abraço apertado em ${dest}.`, `🤗 ${actor} abraçou ${dest} com energia positiva.`],
+      'abraço': [`🤗 ${actor} deu um abraço apertado em ${dest}.`, `🤗 ${actor} abraçou ${dest} com energia positiva.`],
+      carinho: [`🫶 ${actor} encheu ${dest} de carinho.`, `🫶 ${actor} fez carinho em ${dest} e ficou fofo demais.`]
+    }
+    await sock.sendMessage(chatId, { text: pick(map[cmd] || map.carinho), mentions:[sender, target] }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+
+  if (cmd==='cantada'){
+    const targetRaw = arg[0] || ''
+    const num = targetRaw.replace(/[^0-9]/g,'')
+    if (!num){
+      await sock.sendMessage(chatId, { text:'Use: .cantada @user' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+    const target = toNumberJid(num)
+    const cantadas = [
+      'Você não é domínio, mas expandiu meu coração.',
+      'Se beleza fosse energia amaldiçoada, você seria infinito.',
+      'Com você até cooldown passa rápido.',
+      'Nem o Gojo resiste quando você aparece no chat.',
+      'Você bugou meu sistema e eu nem quero patch.'
+    ]
+    const cantada = pick(cantadas)
+    const caption = `😏 ㅤ   ▬▬▬ㅤ
+EXPANSÃO DE DOMÍNIO: SEDUÇÃO
+ㅤ 👁️👁️ㅤ  "Cuidado para não se apaixonar."  ㅤ .
+
+┌──────────────────────┐
+ㅤ  Eu sei, eu sei... é difícil
+ㅤ  resistir a esse brilho todo.
+ㅤ  Vou te dar uma palinha de como
+ㅤ  se faz, vê se aprende. 🍬✨
+└──────────────────────┘
+
+🏹 ㅤ A CANTADA:
+
+ㅤ ╰  “${cantada}”
+
+🎯 ㅤ ALVO:
+
+ㅤ ╰  @${jidToNumber(target)}
+
+📈 ㅤ CHANCE DE SUCESSO:
+
+[▰▰▰▰▰▰▰▰▰▱] 99.9%
+
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+“Funcionou, né? Eu já sabia. Sou
+simplesmente o mais forte.” — Satoru 🤞
+◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤`
+    await sendReactionImageCaption(chatId, msg, caption, [target])
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+
+  if (cmd==='poesia'){
+    const poesias = [
+      'No caos do chat, teu nome é calmaria; no barulho do mundo, tua voz é poesia.',
+      'Entre estrelas e domínio, eu vi teu brilho primeiro.',
+      'Se a noite cair, teu sorriso acende o caminho.',
+      'No infinito do Gojo, ainda cabe você.'
+    ]
+    await sock.sendMessage(chatId, { text:`📜 Poesia aleatória:\n\n${pick(poesias)}` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+
+  if (cmd==='musica' || cmd==='música'){
+    const musicas = [
+      '🎵 Satoru Vibes — Infinite Mood',
+      '🎵 Jujutsu Beat — Domain Drop',
+      '🎵 Lo-fi Feiticeiro — Night Shift',
+      '🎵 Energia Amaldiçoada FM — Vol. 1',
+      '🎵 Tokyo Neon — Hollow Purple Mix'
+    ]
+    await sock.sendMessage(chatId, { text:`🎶 Música aleatória pra você:\n${pick(musicas)}` }, { quoted: msg })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+
   if (['chutar','matar','tapa','murro','xplodir'].includes(cmd)){
     const target = arg[0]||''
     const message = arg.slice(1).join(' ').trim()
@@ -2455,13 +2975,6 @@ ${names}` }, { quoted: msg })
   }
 
   if (cmd==='rankgay'){ await sock.sendMessage(chatId, { text:'Não vou criar comandos que avaliem alguém pela orientação sexual. Use `.rank`, `.rankbanco`, `.rankprof` ou as brincadeiras `.rankpau` / `.rankgostosos`.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-  if (cmd==='rankpau' || cmd==='rankgostosos'){
-    const alvo=arg[0]||''; const pct=Math.floor(Math.random()*101)
-    let joke=''; if(pct>80) joke='Absurdo. Já pode abrir fã clube.'; else if(pct>50) joke='Respeitável, tá na média alta.'; else if(pct>20) joke='É… dá pra melhorar, digamos.'; else joke='Ih… deixa pra próxima, campeão.'
-    await sock.sendMessage(chatId, { text:`${cmd.toUpperCase()} ${alvo}\n${pct}% — ${joke}` }, { quoted: msg })
-    await playAudioIfExists(chatId, pct<20 ? '(5) Você é Fraco.mp3' : '(2) Execução de Comandos.mp3')
-    return
-  }
 
   if (cmd==='dado'){
     const n = Math.floor(Math.random() * 6) + 1
@@ -2581,6 +3094,27 @@ ${lista_de_membros}
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
+
+  if (cmd==='reagir' || cmd==='reacao' || cmd==='react'){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
+    const ctx = msg.message?.extendedTextMessage?.contextInfo
+    if (!ctx?.stanzaId){
+      await sock.sendMessage(chatId, { text:'Use: responda uma mensagem com .reagir <emoji>\nEx.: .reagir 😂' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
+    const emoji = (arg[0] || '👍').trim().slice(0, 2)
+    const targetKey = {
+      remoteJid: chatId,
+      id: ctx.stanzaId,
+      participant: ctx.participant,
+      fromMe: false
+    }
+    await sock.sendMessage(chatId, { react: { text: emoji, key: targetKey } })
+    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
+    return
+  }
+
   if (cmd==='verdade'){
     const subject = arg.join(' ').trim() || 'isso'
     const truths = [
@@ -2597,6 +3131,11 @@ ${lista_de_membros}
   // Games
   if (cmd==='rps'){ await handleRps(text.slice(1), sock, chatId, msg); return }
   if (cmd==='forca'){ await handleForca(text.slice(1), sock, chatId, msg); return }
+  if (cmd==='letra'){
+    const letter = (arg[0] || '').trim()
+    await handleForca(`forca g ${letter}`, sock, chatId, msg)
+    return
+  }
 
   // Store
   if (cmd==='loja'){
