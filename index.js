@@ -1584,7 +1584,6 @@ SATORU GOJO — BLOQUEADO
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
-  }
 
   // Perfil & status
   if (cmd==='perfil'){
