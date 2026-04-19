@@ -1441,6 +1441,28 @@ function getYtDlpBaseOptions(){
   if (cookiesFromBrowser) opts.cookiesFromBrowser = cookiesFromBrowser
   return opts
 }
+async function runYtDlpWithFallback(target, options = {}){
+  const primary = {
+    ...options,
+    ...getYtDlpBaseOptions()
+  }
+  try {
+    return await youtubedl(target, primary)
+  } catch (firstErr){
+    const msg = String(firstErr?.message || firstErr || '').toLowerCase()
+    const retryable = msg.includes('youtube') || msg.includes('bot') || msg.includes('extract') || msg.includes('403') || msg.includes('410')
+    if (!retryable) throw firstErr
+
+    const fallback = {
+      ...options,
+      ...getYtDlpBaseOptions(),
+      extractorArgs: 'youtube:player_client=android,web,ios;youtube:player_skip=webpage,configs',
+      forceIpv4: true,
+      noCheckCertificates: true
+    }
+    return youtubedl(target, fallback)
+  }
+}
 async function audioFromYouTube(url, chatId){
   if (!/youtube\.com|youtu\.be/.test(String(url||''))){
     await sock.sendMessage(chatId, { text:'Link inválido do YouTube.' })
@@ -1450,10 +1472,9 @@ async function audioFromYouTube(url, chatId){
   const outTpl = `./yt_audio_${uid}.%(ext)s`
   let produced = []
   try {
-    await youtubedl(url, {
+    await runYtDlpWithFallback(url, {
       format: 'bestaudio[ext=m4a]/bestaudio/best',
-      output: outTpl,
-      ...getYtDlpBaseOptions()
+      output: outTpl
     })
     produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_audio_${uid}.`))
     const outPath = produced.find(name => /\.mp3$/i.test(name)) || produced[0]
@@ -1480,10 +1501,9 @@ async function audioFromYouTubeSearch(query, chatId){
   const outTpl = `./yt_audio_${uid}.%(ext)s`
   let produced = []
   try {
-    await youtubedl(`ytsearch1:${q}`, {
+    await runYtDlpWithFallback(`ytsearch1:${q}`, {
       format: 'bestaudio[ext=m4a]/bestaudio/best',
-      output: outTpl,
-      ...getYtDlpBaseOptions()
+      output: outTpl
     })
     produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_audio_${uid}.`))
     const outPath = produced.find(name => /\.mp3$/i.test(name)) || produced[0]
@@ -1528,10 +1548,9 @@ async function videoFromYouTube(url, chatId){
   const outTpl = `./yt_video_${uid}.%(ext)s`
   let produced = []
   try {
-    await youtubedl(url, {
+    await runYtDlpWithFallback(url, {
       format: 'best[ext=mp4]/best',
-      output: outTpl,
-      ...getYtDlpBaseOptions()
+      output: outTpl
     })
     produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_video_${uid}.`))
     const outPath = produced.find(name => /\.mp4$/i.test(name)) || produced[0]
@@ -1608,6 +1627,21 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   }
   const getUser = async (jid) => dbGetUser(await resolveUserRecordId(jid))
   const setUser = async (jid, obj) => dbSetUser(await resolveUserRecordId(jid), obj)
+  const resolveMarriageStateId = async (jid) => stripUserScope(await resolveUserRecordId(jid))
+  const getMarriagePartners = async (jid) => {
+    if (!isGroup) return []
+    return getGroupMarriagePartners(chatId, await resolveMarriageStateId(jid))
+  }
+  const setMarriagePartners = async (jid, partners = []) => {
+    if (!isGroup) return
+    const ownerId = await resolveMarriageStateId(jid)
+    const partnerIds = uniqueJidsByNumber(await Promise.all((partners || []).map(resolveMarriageStateId)))
+    await setGroupMarriagePartners(chatId, ownerId, partnerIds)
+  }
+  const clearMarriagePartners = async (jid) => {
+    if (!isGroup) return
+    await clearGroupMarriage(chatId, await resolveMarriageStateId(jid))
+  }
   if (isGroup) await bootstrapUserFromLegacy(sender, chatId)
   const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
   await maybeUpdateLastActive(sender, getUser)
@@ -1996,11 +2030,11 @@ SATORU GOJO — BLOQUEADO
   if (cmd==='perfil'){
     const u = await getUser(sender)
     const numero = jidToNumber(sender)
-    const currentMarriage = isGroup ? await getGroupMarriagePartners(chatId, sender) : []
+    const currentMarriage = await getMarriagePartners(sender)
     if (isGroup && !currentMarriage.length && normalizeMarriedList(u.marriedTo).length){
       await migrateLegacyMarriageToGroup(chatId, sender)
     }
-    const marriedPartners = isGroup ? await getGroupMarriagePartners(chatId, sender) : []
+    const marriedPartners = await getMarriagePartners(sender)
     u.level = lvlForXP(u.xp || 0)
     setMaritalStatusLabel(u, marriedPartners)
     await saveDB()
@@ -2711,7 +2745,7 @@ ${names}` }, { quoted: msg })
       if (normalizeMarriedList((await getUser(jid)).marriedTo).length){
         await migrateLegacyMarriageToGroup(chatId, jid)
       }
-      const marriedPartners = await getGroupMarriagePartners(chatId, jid)
+      const marriedPartners = await getMarriagePartners(jid)
       if (marriedPartners.length){
         await sock.sendMessage(chatId, { text:`@${jidToNumber(jid)} já está em um casamento.`, mentions:[jid] }, { quoted: msg })
         await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
@@ -2854,7 +2888,7 @@ Aguardando: ${pending.map(jid => `@${jidToNumber(jid)}`).join(', ')}`,
 
     for (const jid of proposal.participants){
       const partners = uniqueJidsByNumber(proposal.participants.filter(x => !sameJidUser(x, jid)))
-      await setGroupMarriagePartners(chatId, jid, partners)
+      await setMarriagePartners(jid, partners)
     }
     await saveDB()
     await deleteMarriageProposal(chatId)
@@ -2899,11 +2933,11 @@ semana, dá muito trabalho pro sistema.”
 
   if (cmd==='divorciar'){
     const u = await getUser(sender)
-    const partners = isGroup ? await getGroupMarriagePartners(chatId, sender) : []
+    const partners = await getMarriagePartners(sender)
     if (!partners.length){ await sock.sendMessage(chatId, { text:'Você não está casado.' }, { quoted: msg }); return }
-    await clearGroupMarriage(chatId, sender)
+    await clearMarriagePartners(sender)
     for (const jid of partners){
-      await clearGroupMarriage(chatId, jid)
+      await clearMarriagePartners(jid)
     }
     await saveDB()
     await sock.sendMessage(chatId, { text:'💔 Divórcio oficializado. Tudo terminado com dignidade.' }, { quoted: msg })
@@ -2914,12 +2948,12 @@ semana, dá muito trabalho pro sistema.”
   if (cmd==='trair'){
     const u = await getUser(sender)
     const leftParts = []
-    const partners = isGroup ? await getGroupMarriagePartners(chatId, sender) : []
+    const partners = await getMarriagePartners(sender)
     if (partners.length){
       leftParts.push('casamento')
-      await clearGroupMarriage(chatId, sender)
+      await clearMarriagePartners(sender)
       for (const jid of partners){
-        await clearGroupMarriage(chatId, jid)
+        await clearMarriagePartners(jid)
       }
       u.betrayalTitle = 'Corno(a)'
     }
