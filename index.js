@@ -14,8 +14,6 @@ import { makeSticker } from './sticker.js'
 import { PROFESSIONS, STORE, PLANTS } from './config.js'
 import { handleForca } from './games/forca.js'
 import { handleRps } from './games/rps.js'
-import tiktokCommand from './comandos/tiktok.js'
-
 ffmpeg.setFfmpegPath(ffmpegStatic)
 
 const logger = pino({ level: 'silent' }) // Silencia logs da Baileys
@@ -549,7 +547,7 @@ import fsPromises from 'fs/promises'
 
 async function loadDownloaderConfig(){
   try{ return JSON.parse(await fsPromises.readFile(DOWNLOAD_CONFIG_FILE,'utf8')) }
-  catch{ return { tiktok:{endpoint:'',token:''}, pinterest:{endpoint:'',token:''}, ai:{provider:'gemini',endpoint:'https://generativelanguage.googleapis.com/v1beta',token:'',model:'gemini-2.0-flash',systemPrompt:''} } }
+  catch{ return { pinterest:{endpoint:'',token:''}, ai:{provider:'gemini',endpoint:'https://generativelanguage.googleapis.com/v1beta',token:'',model:'gemini-2.0-flash',systemPrompt:''} } }
 }
 
 async function httpGetBuffer(url, headers={}){ const res=await fetch(url,{headers}); if(!res.ok) throw new Error('HTTP '+res.status); const ab=await res.arrayBuffer(); return Buffer.from(new Uint8Array(ab)) }
@@ -1131,9 +1129,6 @@ async function audioFromYouTube(url, chatId){
 async function audioFromGeneric(link, chatId){
   const cfg = await loadDownloaderConfig()
   let endpoint='', token=''
-  if (/tiktok\.com/.test(link)){ endpoint = cfg.tiktok.endpoint; token = cfg.tiktok.token }
-  else if (/pinterest\.com/.test(link)){ endpoint = cfg.pinterest.endpoint; token = cfg.pinterest.token }
-  if (!endpoint){ await sock.sendMessage(chatId, { text:'Configure sua API em download.config.json para TikTok/Pinterest (sem marca d’água).' }); return }
   try{
     const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{}) }, body: JSON.stringify({ url: link, noWatermark:true }) })
     if (res.status === 410) throw new Error('410')
@@ -1179,8 +1174,7 @@ async function videoFromYouTube(url, chatId){
 async function videoFromGeneric(link, chatId){
   const cfg = await loadDownloaderConfig()
   let endpoint='', token=''
-  if (/tiktok\.com/.test(link)){ endpoint = cfg.tiktok.endpoint; token = cfg.tiktok.token }
-  else if (/pinterest\.com/.test(link)){ endpoint = cfg.pinterest.endpoint; token = cfg.pinterest.token }
+  if (/pinterest\.com/.test(link)){ endpoint = cfg.pinterest.endpoint; token = cfg.pinterest.token }
 
   // Pinterest: fallback gratuito via RSS de board quando API não estiver configurada.
   if (/pinterest\.com/.test(link) && !endpoint){
@@ -1200,7 +1194,7 @@ async function videoFromGeneric(link, chatId){
     }
   }
 
-  if (!endpoint){ await sock.sendMessage(chatId, { text:'Configure sua API em download.config.json para TikTok/Pinterest (sem marca d’água).' }); return }
+  if (!endpoint){ await sock.sendMessage(chatId, { text:'Configure sua API em download.config.json para Pinterest (sem marca d’água).' }); return }
   try{
     const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{}) }, body: JSON.stringify({ url: link, noWatermark:true }) })
     if (res.status === 410) throw new Error('410')
@@ -2745,14 +2739,9 @@ SATORU GOJO — BLOQUEADO
   }
   if (cmd==='video' || cmd==='vidio'){
     const link=arg[0]||''
-    if (!link){ await sock.sendMessage(chatId, { text:'Use: .video <link YouTube/TikTok/Pinterest>\nPinterest grátis: envie o link de board para usar RSS.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    if (!link){ await sock.sendMessage(chatId, { text:'Use: .video <link YouTube/Pinterest>\nPinterest grátis: envie o link de board para usar RSS.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
     if (/youtube\.com|youtu\.be/.test(link)) await videoFromYouTube(link, chatId); else await videoFromGeneric(link, chatId)
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3'); return
-  }
-  if (cmd==='tiktok' || cmd==='tt'){
-    await tiktokCommand(sock, msg, arg)
-    await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
-    return
   }
   if (cmd==='ia' || cmd==='ai'){
     const pergunta = arg.join(' ').trim()
@@ -2814,6 +2803,8 @@ SATORU GOJO — BLOQUEADO
 await sendDebocheWarning(chatId, msg, 'invalid')
   await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
 })
+
+
 
 
 
