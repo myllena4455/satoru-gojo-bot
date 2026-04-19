@@ -336,6 +336,8 @@ async function bootstrapUserFromLegacy(legacyJid, chatId=''){
   const scopedUserId = chatId ? `${chatId}::${legacyJid}` : legacyJid
   const current = db_mod.data.users[scopedUserId]
 
+  if (current && !isDefaultUserRecord(current)) return false
+
   const legacyEntries = Object.entries(db_mod.data.users).filter(([key]) => {
     if (key === scopedUserId) return false
     if (chatId && key.startsWith(`${chatId}::`)) return false
@@ -348,16 +350,19 @@ async function bootstrapUserFromLegacy(legacyJid, chatId=''){
   if (!preferredEntry) return false
 
   const [, legacy] = preferredEntry
-  const base = current && !isDefaultUserRecord(current) ? current : (current || {})
   const merged = {
-    ...base,
     ...legacy,
-    marriedTo: null,
-    children: Array.isArray(legacy.children) ? [...legacy.children] : [],
-    items: Array.isArray(legacy.items) ? [...legacy.items] : [],
-    cooldowns: legacy.cooldowns ? { ...legacy.cooldowns } : {},
-    materials: legacy.materials ? { ...legacy.materials } : { pedra:0, erva:0, carne:0, minerio:0 },
-    plants: legacy.plants ? { ...legacy.plants } : { tomate:0, cenoura:0, melancia:0, abobora:0 }
+    ...(current || {}),
+    marriedTo: normalizeMarriedList((current && current.marriedTo) ?? legacy.marriedTo),
+    children: Array.isArray(current?.children)
+      ? [...current.children]
+      : (Array.isArray(legacy.children) ? [...legacy.children] : []),
+    items: Array.isArray(current?.items)
+      ? [...current.items]
+      : (Array.isArray(legacy.items) ? [...legacy.items] : []),
+    cooldowns: current?.cooldowns ? { ...current.cooldowns } : (legacy.cooldowns ? { ...legacy.cooldowns } : {}),
+    materials: current?.materials ? { ...current.materials } : (legacy.materials ? { ...legacy.materials } : { pedra:0, erva:0, carne:0, minerio:0 }),
+    plants: current?.plants ? { ...current.plants } : (legacy.plants ? { ...legacy.plants } : { tomate:0, cenoura:0, melancia:0, abobora:0 })
   }
   db_mod.data.users[scopedUserId] = merged
   await saveDB()
