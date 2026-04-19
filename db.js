@@ -64,10 +64,48 @@ function mergeDefaults(data){
   }
 }
 
-ensureDirForFile(DB_FILE)
-const sqlite = new Database(DB_FILE)
-sqlite.pragma('journal_mode = WAL')
-sqlite.pragma('synchronous = NORMAL')
+function backupCorruptedDatabase(filePath, err){
+  if (!fs.existsSync(filePath)) return
+  const dir = path.dirname(path.resolve(filePath))
+  const base = path.basename(filePath)
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')
+  const backupPath = path.join(dir, `${base}.invalid-${stamp}`)
+  try {
+    fs.renameSync(filePath, backupPath)
+  } catch {
+    try {
+      fs.copyFileSync(filePath, backupPath)
+      fs.unlinkSync(filePath)
+    } catch {
+      return
+    }
+  }
+  const reason = err?.code || err?.message || 'unknown_error'
+  console.warn(`[DB] Banco inválido detectado em ${filePath}. Backup criado em ${backupPath} (${reason}).`)
+}
+
+function openSqliteDatabase(filePath){
+  ensureDirForFile(filePath)
+  try {
+    const instance = new Database(filePath)
+    instance.pragma('journal_mode = WAL')
+    instance.pragma('synchronous = NORMAL')
+    return instance
+  } catch (err){
+    const code = err?.code || ''
+    const message = String(err?.message || '')
+    if (code === 'SQLITE_NOTADB' || /file is not a database/i.test(message)){
+      backupCorruptedDatabase(filePath, err)
+      const instance = new Database(filePath)
+      instance.pragma('journal_mode = WAL')
+      instance.pragma('synchronous = NORMAL')
+      return instance
+    }
+    throw err
+  }
+}
+
+const sqlite = openSqliteDatabase(DB_FILE)
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS users (
