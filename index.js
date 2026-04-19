@@ -1453,7 +1453,7 @@ SATORU GOJO — ACESSO ATIVO
     }
   }
 
-  const freeCommands = new Set(['menu','ajuda','planobot','licenca','ativar','menudono','perfil','debugdono'])
+  const freeCommands = new Set(['menu','ajuda','planobot','licenca','ativar','menudono','perfil','debugdono','classe'])
   if (!ownerContext && !license.active && !groupSponsored && !freeCommands.has(cmd)){
     await sendBlockedReactionImage(chatId, msg)
     await sock.sendMessage(chatId, { text:`🛑 ㅤ   ▬▬▬ㅤ
@@ -2524,14 +2524,60 @@ ${names}` }, { quoted: msg })
 
   // Store
   if (cmd==='loja'){
-  const items = (await import('./config.js')).STORE.itens || []
-  if (!items.length){
-  await sock.sendMessage(chatId, { text:'Loja vazia no momento.' }, { quoted: msg })
-  await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
-  return
-  }
-  const list = items.map(i=>`${i.id}. ${i.name} (${i.price})`).join('\n')
-  await sock.sendMessage(chatId, { text:`🛒 Loja oficial\n${list}\nUse: .buy <id>` }, { quoted: msg })
+    const storeGuide = `🛒 ㅤ   ▬▬▬ㅤ
+GUIA DE ITENS — GOJO
+ㅤ 👁️👁️ㅤ  "Lê com atenção pra não comprar lixo." ㅤ .
+
+🟢 GRAU 4 (BÁSICOS)
+
+Colete de Couro ($700): Proteção leve para o torso. (+5% Defesa)
+
+Luvas de Trabalho ($450): Protege as mãos. (+5% de bônus no .work)
+
+Poção de HP Pequena ($550): Curativo rápido. (Recupera 20% da vida)
+
+Curativo Rápido ($450): Estanca sangramentos simples em batalhas.
+
+Corda de Nylon ($620): Facilita a descida em masmorras ou cavernas.
+
+Vassoura de Palha ($350): Aumenta ganhos em trabalhos braçais. (+2%)
+
+🔵 GRAU 3 (COMUNS)
+7. Armadura de Ferro ($3.200): Resistência sólida contra golpes. (+10% Defesa)
+8. Escudo de Bronze ($2.500): Chance de bloquear ataques físicos. (+8%)
+9. Picareta de Ferro ($3.800): Melhora a extração de minérios. (+10% no .minerar)
+10. Machado de Aço ($3.800): Corta madeira com mais facilidade. (+10% no trabalho)
+11. Rede de Caça ($2.900): Aumenta a chance de capturar animais. (+15% no .cacar)
+12. Antídoto Geral ($1.800): Remove qualquer efeito de veneno do corpo.
+
+🟡 GRAU 2 (RAROS)
+13. Manto de Fluxo ($8.000): Tecido leve que ajuda a desviar. (+10% Agilidade)
+14. Enxada de Prata ($6.800): Melhora o rendimento da horta. (+15% no .plantar)
+15. Suco de Mochi ($6.200): O lanche favorito do Gojo. (Recupera 50% de Energia)
+16. Kit Investigação ($9.500): Aumenta sucesso em buscas. (+20% em .explorar)
+17. Vara de Pesca Pro ($7.600): Fisga peixes raros com mais facilidade. (+20%)
+18. Bota de Mercenário ($11.500): Melhora a velocidade de fuga. (+15% Escape)
+
+🔴 GRAU 1 (ELITE)
+19. Cota de Malha Real ($22.000): Proteção de cavaleiro. (+15% Defesa total)
+20. Armadura de Placas ($31.000): Quase impenetrável. (+25% Defesa total)
+21. Maleta Executiva ($36.000): Aumenta o prestígio e o salário. (+20% no .salario)
+22. Notebook Gamer ($27.000): Aumenta a eficiência em código. (+20% no trabalho)
+23. Picareta de Diamante ($49.000): Extrai joias lendárias. (+35% no .minerar)
+24. Poção de HP Grande ($17.500): Regeneração total. (Cura 100% da vida)
+
+🟣 GRAU ESPECIAL (LENDÁRIOS)
+25. Manto do Vazio ($135.000): Difícil de ser tocado. (+20% de Esquiva real)
+26. Escudo de Obsidiana ($165.000): Proteção extrema. (Torna você imune a fogo)
+27. Traje de Sombra ($225.000): Fica invisível por 3 turnos (Escapa de lutas)
+28. Amuleto de Vida ($360.000): Uma segunda chance. (Renasce 1x se morrer)
+29. Frasco Adrenalina ($99.000): Impulso de poder. (Dobra o seu Dano por 3 rodadas)
+30. Elixir de Satoru ($899.999): Poder absoluto. (Todos os Status no Máximo por 1h)
+
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+🔵 INFO: Use .buy <id> para adquirir.
+◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤`
+    await sock.sendMessage(chatId, { text: storeGuide }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
