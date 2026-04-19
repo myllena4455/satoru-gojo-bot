@@ -786,11 +786,12 @@ function hydrateMarriageProposal(proposal){
 }
 
 async function getMarriageProposal(chatId){
-  const cached = marriageProposals.get(chatId)
-  if (cached) return cached
   await db_mod.read()
   const raw = db_mod.data.system?.marriageProposals?.[chatId]
-  if (!raw) return null
+  if (!raw){
+    marriageProposals.delete(chatId)
+    return null
+  }
   const proposal = hydrateMarriageProposal(raw)
   marriageProposals.set(chatId, proposal)
   return proposal
@@ -1419,6 +1420,7 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   if (!msg?.message) return
   const chatId = msg.key.remoteJid
   const sender = resolveSenderJid(msg)
+  const senderJid = toNumberJid(jidDigits(sender))
   const isGroup = chatId.endsWith('@g.us')
   const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
   await maybeUpdateLastActive(sender)
