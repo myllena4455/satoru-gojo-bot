@@ -1346,9 +1346,7 @@ ${lines}`
 }
 
 async function sendMenu(chatId, quoted){
-  const menuPath = fs.existsSync('./assets/menu.jpg')
-    ? './assets/menu.jpg'
-    : (fs.existsSync('./assets/menu.png') ? './assets/menu.png' : null)
+  const menuPath = getMenuImagePath('')
   const img = menuPath ? fs.readFileSync(menuPath) : null
   const caption = `🌌 ⫐⫐  SATORU GOJO ⫐⫐ 🌌
 ㅤ ㅤ  "Relaxa, eu sou o mais forte."  ㅤ .
@@ -1389,9 +1387,14 @@ function getMenuImagePath(cat){
     dono: './assets/menu dono.jpeg',
     owner: './assets/menu dono.jpeg'
   }
-  const selected = map[key] || './assets/menu.png'
-  if (fs.existsSync(selected)) return selected
-  return fs.existsSync('./assets/menu.png') ? './assets/menu.png' : null
+  
+  if (map[key] && fs.existsSync(map[key])) return map[key]
+  
+  const fallbacks = ['./assets/menu.png', './assets/menu.jpg', './assets/menu.jpeg']
+  for (const p of fallbacks) {
+    if (fs.existsSync(p)) return p
+  }
+  return null
 }
 
 async function sendMenuCategory(chatId, quoted, cat, caption){
@@ -1681,53 +1684,6 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   // Stickers
   const directImage = getDirectImageMessage(msg)
   if (directImage){
-    if (!accessGranted){
-      await sendBlockedReactionImage(chatId, msg)
-      await sock.sendMessage(chatId, { text:`🛑 ㅤ   ▬▬▬ㅤ
-SATORU GOJO — BLOQUEADO
-ㅤ 👁️👁️ㅤ  "Voce nao tem acesso a mim... ainda." ㅤ .
-
-┌──────────────────────┐
-ㅤ  Para usar figurinha no privado,
-ㅤ  sua licença precisa estar ativa.
-ㅤ  No grupo, o acesso depende de um
-ㅤ  admin com licença ativa.
-└──────────────────────┘
-
-⚙️ ㅤ REGRAS DE USO:
-
-ㅤ ╰ Privado: licença própria ativa.
-ㅤ ╰ Grupo: 1 admin ativo libera.
-
-◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤` }, { quoted: msg })
-      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
-      return
-    }
-    if (!canSendSticker(sender)) return
-
-    const imageMsg = {
-      key: msg.key,
-      message: { imageMessage: directImage }
-    }
-    let buf
-    try {
-      buf = await downloadMediaBuffer(imageMsg, 'buffer')
-    } catch (err) {
-      await sock.sendMessage(chatId, { text:`Falha ao ler a imagem para figurinha: ${err.message}` }, { quoted: msg })
-      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
-      return
-    }
-
-    const profile = await getUser(sender)
-    const author = profile.name || msg.pushName || 'Usuário'
-    try {
-      const sticker = await makeSticker(buf, author, `${author}_sticker`)
-      await sock.sendMessage(chatId, { sticker }, { quoted: msg })
-    } catch (err) {
-      await sock.sendMessage(chatId, { text:`Falha ao converter em figurinha: ${err.message}` }, { quoted: msg })
-      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
-      return
-    }
     return
   }
 
@@ -1742,7 +1698,8 @@ SATORU GOJO — BLOQUEADO
   const lowerText = text.toLowerCase()
   const insultWords = ['pqp','fdp','fodase','vai se fuder','vai se foder','burro','idiota','otario','otário','merda']
   const hasInsult = insultWords.some(w=> lowerText.includes(w))
-  if (hasInsult){
+  const isTargetedAtBot = isBotMentioned(msg)
+  if (hasInsult && isTargetedAtBot){
     await sendDebocheWarning(chatId, msg, 'xinga')
     await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
     return
@@ -2747,9 +2704,13 @@ ${names}` }, { quoted: msg })
       }
       const marriedPartners = await getMarriagePartners(jid)
       if (marriedPartners.length){
-        await sock.sendMessage(chatId, { text:`@${jidToNumber(jid)} já está em um casamento.`, mentions:[jid] }, { quoted: msg })
-        await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
-        return
+        // Permitir que as pessoas no pedido já estejam casadas ENTRE SI, mas não com terceiros
+        const allInProposal = marriedPartners.every(p => uniqueParticipants.some(up => sameJidUser(up, p)))
+        if (!allInProposal || (marriedPartners.length + (uniqueParticipants.length - marriedPartners.filter(p => uniqueParticipants.some(up => sameJidUser(up, p))).length) > 4)) {
+            await sock.sendMessage(chatId, { text:`@${jidToNumber(jid)} já está em um casamento com alguém fora deste grupo ou o limite de 4 pessoas será excedido.`, mentions:[jid] }, { quoted: msg })
+            await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+            return
+        }
       }
     }
 
@@ -3404,7 +3365,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar este comando.' }, { quoted: msg }); return }
+    if (!admins.includes(sender) && !ownerContext){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar este comando.' }, { quoted: msg }); return }
     const target = getFirstMentionedJid(msg, arg)
     if (!target){ await sock.sendMessage(chatId, { text:`Use: .${cmd} @user` }, { quoted: msg }); return }
     const targetRaw = jidToNumber(target)
@@ -3420,7 +3381,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem banir.' }, { quoted: msg }); return }
+    if (!admins.includes(sender) && !ownerContext){ await sock.sendMessage(chatId, { text:'Apenas administradores podem banir.' }, { quoted: msg }); return }
     const mentioned = getFirstMentionedJid(msg, arg)
     if (!mentioned){ await sock.sendMessage(chatId, { text:'Use: .ban @user' }, { quoted: msg }); return }
     await sock.groupParticipantsUpdate(chatId, [mentioned], 'remove')
@@ -3432,7 +3393,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar .banlink.' }, { quoted: msg }); return }
+    if (!admins.includes(sender) && !ownerContext){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar .banlink.' }, { quoted: msg }); return }
     const mode = (arg[0] || 'status').toLowerCase()
     const settings = await getGroupSettings(chatId)
     if (['on','ativar','1'].includes(mode)){
@@ -3451,7 +3412,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem aplicar advertência.' }, { quoted: msg }); return }
+    if (!admins.includes(sender) && !ownerContext){ await sock.sendMessage(chatId, { text:'Apenas administradores podem aplicar advertência.' }, { quoted: msg }); return }
     const target = getFirstMentionedJid(msg, arg)
     if (!target){ await sock.sendMessage(chatId, { text:'Use: .advertencia @user [motivo]' }, { quoted: msg }); return }
     const targetRaw = jidToNumber(target)
@@ -3485,7 +3446,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = new Set(meta.participants.filter(p=>p.admin).map(p=>p.id))
-    if (!admins.has(sender)){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar .banghosts.' }, { quoted: msg }); return }
+    if (!admins.has(sender) && !ownerContext){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar .banghosts.' }, { quoted: msg }); return }
 
     const limitMs = 30 * 24 * 60 * 60 * 1000
     const cutoff = Date.now() - limitMs
@@ -3887,7 +3848,7 @@ SATORU GOJO — BLOQUEADO
     if (!groupSettings?.premium){ await sock.sendMessage(chatId, { text:'Esse recurso exige plano premium. Ative com .plano ativar.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    const isAdmin = admins.includes(sender)
+    const isAdmin = admins.includes(sender) || ownerContext
     if (!isAdmin){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar este comando.' }, { quoted: msg }); await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3'); return }
 
     if (cmd==='pcadd'){
