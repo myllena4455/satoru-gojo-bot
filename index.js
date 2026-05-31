@@ -3510,7 +3510,7 @@ simplesmente o mais forte.” — Satoru 🤞
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
     if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Somente admin pode configurar.' }, { quoted: msg }); return }
-    if (!groupSettings.premium){ await sock.sendMessage(chatId, { text:'Esse recurso exige plano premium. Ative com .plano ativar.' }, { quoted: msg }); return }
+    if (!groupSettings.premium && !ownerContext && !isOwnerNumber){ await sock.sendMessage(chatId, { text:'Esse recurso exige plano premium. Ative com .plano ativar.' }, { quoted: msg }); return }
     const type = cmd==='setwelcome' ? 'welcome' : 'bye'
     const textValue = arg.join(' ').trim() || ''
     let imageBase64 = null
@@ -3699,15 +3699,15 @@ GUIA DE ITENS — GOJO
 
 🟢 GRAU 4 (BÁSICOS)
 
-Colete de Couro ($700): Proteção leve para o torso. (+5% Defesa)
+Colete de Couro ($157): Proteção leve para o torso. (+5% Defesa)
 
-Luvas de Trabalho ($450): Protege as mãos. (+5% de bônus no .work)
+Luvas de Trabalho ($250): Protege as mãos. (+5% de bônus no .work)
 
-Poção de HP Pequena ($550): Curativo rápido. (Recupera 20% da vida)
+Poção de HP Pequena ($150): Curativo rápido. (Recupera 20% da vida)
 
-Curativo Rápido ($450): Estanca sangramentos simples em batalhas.
+Curativo Rápido ($350): Estanca sangramentos simples em batalhas.
 
-Corda de Nylon ($620): Facilita a descida em masmorras ou cavernas.
+Corda de Nylon ($220): Facilita a descida em masmorras ou cavernas.
 
 Vassoura de Palha ($350): Aumenta ganhos em trabalhos braçais. (+2%)
 
@@ -3858,7 +3858,7 @@ SATORU GOJO — BLOQUEADO
   // Admin-o
   if (['pcadd','pclist','pcrmv'].includes(cmd)){
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    if (!groupSettings?.premium){ await sock.sendMessage(chatId, { text:'Esse recurso exige plano premium. Ative com .plano ativar.' }, { quoted: msg }); return }
+    if (!groupSettings?.premium && !ownerContext && !isOwnerNumber){ await sock.sendMessage(chatId, { text:'Esse recurso exige plano premium. Ative com .plano ativar.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
     const isAdmin = admins.includes(sender) || ownerContext
