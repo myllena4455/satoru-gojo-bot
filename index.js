@@ -1656,13 +1656,14 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   }
 
   const ownerContext = isOwnerContext(sender, chatId, msg)
+  const isOwnerNumber = sameNumber(jidDigits(sender), '5581986010094')
   const license = await getBotLicenseStatus(sender, [chatId, sock?.user?.id])
   let groupSponsored = false
-  if (isGroup && !license.active && !ownerContext){
+  if (isGroup && !license.active && !ownerContext && !isOwnerNumber){
     const sponsor = await getGroupSponsorLicenseStatus(chatId)
     groupSponsored = sponsor.active
   }
-  const accessGranted = ownerContext || license.active || groupSponsored
+  const accessGranted = ownerContext || license.active || groupSponsored || isOwnerNumber
 
   if (isGroup && groupSettings?.banLinks){
     const hasLink = /(https?:\/\/|www\.|chat\.whatsapp\.com\/|wa\.me\/)/i.test(text)
@@ -2692,6 +2693,11 @@ ${names}` }, { quoted: msg })
 
     const participants = [proposerJid, ...uniqueTargetJids]
     const uniqueParticipants = uniqueJidsByNumber(participants)
+    if (uniqueParticipants.length > 4){
+      await sock.sendMessage(chatId, { text:'O limite máximo para um casamento (harém) é de 4 pessoas no total.' }, { quoted: msg })
+      await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
+      return
+    }
     if (uniqueParticipants.length !== participants.length){
       await sock.sendMessage(chatId, { text:'Você não pode repetir pessoas na proposta de casamento.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
@@ -2706,8 +2712,10 @@ ${names}` }, { quoted: msg })
       if (marriedPartners.length){
         // Permitir que as pessoas no pedido já estejam casadas ENTRE SI, mas não com terceiros
         const allInProposal = marriedPartners.every(p => uniqueParticipants.some(up => sameJidUser(up, p)))
-        if (!allInProposal || (marriedPartners.length + (uniqueParticipants.length - marriedPartners.filter(p => uniqueParticipants.some(up => sameJidUser(up, p))).length) > 4)) {
-            await sock.sendMessage(chatId, { text:`@${jidToNumber(jid)} já está em um casamento com alguém fora deste grupo ou o limite de 4 pessoas será excedido.`, mentions:[jid] }, { quoted: msg })
+        // Corrigido: remover a trava de limite de 4 na verificação inicial de "já casado"
+        // O limite real é aplicado na aceitação e na formação do novo grupo
+        if (!allInProposal) {
+            await sock.sendMessage(chatId, { text:`@${jidToNumber(jid)} já está em um casamento com alguém fora deste grupo.`, mentions:[jid] }, { quoted: msg })
             await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
             return
         }
