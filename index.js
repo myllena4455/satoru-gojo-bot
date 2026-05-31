@@ -1656,7 +1656,8 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   }
 
   const ownerContext = isOwnerContext(sender, chatId, msg)
-  const isOwnerNumber = sameNumber(jidDigits(sender), '5581986010094')
+  const senderDigits = jidDigits(sender)
+  const isOwnerNumber = senderDigits.includes('581986010094') || senderDigits.includes('259184213934087')
   const license = await getBotLicenseStatus(sender, [chatId, sock?.user?.id])
   let groupSponsored = false
   if (isGroup && !license.active && !ownerContext && !isOwnerNumber){
@@ -2693,6 +2694,10 @@ ${names}` }, { quoted: msg })
 
     const participants = [proposerJid, ...uniqueTargetJids]
     const uniqueParticipants = uniqueJidsByNumber(participants)
+    
+    // DEBUG: print para logs do PM2
+    console.log(`[CASAR] Proponente: ${proposerJid}, Participantes Únicos: ${uniqueParticipants.length}`)
+
     if (uniqueParticipants.length > 4){
       await sock.sendMessage(chatId, { text:'O limite máximo para um casamento (harém) é de 4 pessoas no total.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3')
