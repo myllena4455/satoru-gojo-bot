@@ -1642,13 +1642,7 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   const chatId = msg.key.remoteJid
   const sender = resolveSenderJid(msg)
   const pushName = msg.pushName || ''
-  if (pushName){
-    const u = await getUser(sender)
-    if (u.name !== pushName || !u.name){
-      u.name = pushName
-      await saveDB()
-    }
-  }
+
   const senderJid = sender || toNumberJid(jidDigits(sender))
   const isGroup = chatId.endsWith('@g.us')
 
@@ -1674,6 +1668,14 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   }
   async function setUser(jid, obj) {
     return dbSetUser(await resolveUserRecordId(jid), obj);
+  }
+
+  if (pushName){
+    const u = await getUser(sender)
+    if (u.name !== pushName || !u.name){
+      u.name = pushName
+      await saveDB()
+    }
   }
   async function resolveMarriageStateId(jid) {
     return stripUserScope(await resolveUserRecordId(jid));
