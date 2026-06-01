@@ -1252,6 +1252,7 @@ GOJO — GUIA DE COMANDOS
 
 ㅤ ╰ .menu ─ Painel Geral
 ㅤ ╰ .menu rpg ─ Mundo e Economia
+ㅤ ╰ .menu adm ─ Administração do Grupo
 ㅤ ╰ .menu premio ─ Funções VIP
 ㅤ ╰ .menu brincadeiras ─ Zueira
 ㅤ ╰ .menu dono ─ Painel do dono
@@ -1307,6 +1308,37 @@ GOJO — GUIA DE COMANDOS
 ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 📧 SUPORTE: satoru.suport24hs@gmail.com
 📱 LICENÇA: ${BOT_LICENSE_CONTACT || 'não configurado'}${BOT_LICENSE_CONTACT_LINK ? ` (${BOT_LICENSE_CONTACT_LINK})` : ''}
+◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤` }
+  if (key === 'adm' || key === 'admin' || key === 'moderacao'){
+    return `🛡️ ㅤ   ▬▬▬ㅤ
+GOJO — ADMINISTRAÇÃO
+ㅤ 👁️👁️ㅤ  "Vou manter a ordem por aqui... do meu jeito." ㅤ .
+
+┌──────────────────────┐
+ㅤ  Comandos exclusivos para quem
+ㅤ  manda (ou quem eu deixo mandar).
+ㅤ  Não abuse ou o ban vem. 🍬✨
+└──────────────────────┘
+
+🚫 ㅤ CONTROLE DO GRUPO:
+
+ㅤ ╰ .ban <numero> ─ Expulsão 🚫
+ㅤ ╰ .audios on/off ─ Silenciar o bot 🔊
+ㅤ ╰ .muta/desmut @user ─ Silêncio 🔇
+ㅤ ╰ .banlink on/off ─ Anti-link 🔗
+ㅤ ╰ .advertencia @user ─ Avisos ⚠️
+ㅤ ╰ .banghosts ─ Limpar inativos 👻
+
+⚙️ ㅤ CONFIGURAÇÕES:
+
+ㅤ ╰ .plano ─ Ver status do grupo 💎
+ㅤ ╰ .plano ativar ─ Ativar Premium ⚡
+ㅤ ╰ .setwelcome <texto> ─ Boas-vindas 🖼️
+ㅤ ╰ .setbye <texto> ─ Saída 🖼️
+ㅤ ╰ .pcadd/rmv ─ Comandos custom ⚙️
+
+▰▰▰▰▰⫐⫐⫐⫐⫐⫐⫐⫐⫐⫐⫐⫐⫐⫐⫐
+🛡️ STATUS: MODERAÇÃO ATIVA
 ◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤` }
   if (key === 'variado' || key === 'variedades'){
     return `🎭 ㅤ   ▬▬▬ㅤ
@@ -1388,10 +1420,11 @@ async function sendMenu(chatId, quoted){
 
 🔵 .menu rpg
 ⚪ .menu premium
-🔵 .menu brincadeiras
-⚪ .menu ajuda
-🔵 .menu variado
-⚪ .menu dono
+🔵 .menu adm
+⚪ .menu brincadeiras
+🔵 .menu ajuda
+⚪ .menu variado
+🔵 .menu dono
 
 
 ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
