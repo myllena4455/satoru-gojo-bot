@@ -1139,6 +1139,7 @@ GOJO — MENU PREMIUM
 🚫 ㅤ CONTROLE DE GRAU ESPECIAL:
 
 ㅤ ╰ .ban <numero> — Expulsao imediata (somente admin)
+ㅤ ╰ .audios on/off — Ativar/Desativar áudios do bot
 ㅤ ╰ .muta @user — Silencio absoluto (somente admin) 🔇
 ㅤ ╰ .desmut @user — Devolver a voz (somente admin) 🗣️
 ㅤ ╰ .banlink on/off/status — Anti-link (somente admin) 🔗
@@ -1294,6 +1295,7 @@ GOJO — GUIA DE COMANDOS
 🚫 ㅤ CONTROLE (ADMIN/VIP):
 
 ㅤ ╰ .ban ─ Chuta o inútil do grupo 🚫
+╰ .audios on/off ─ Liga/Desliga áudios do bot 🔊
 ╰ .muta/desmut ─ Cala a boca de alguém 🔇
 ╰ .banlink ─ Bloqueia links no grupo 🔗
 ╰ .advertencia ─ Ban automático na 5ª ⚠️
