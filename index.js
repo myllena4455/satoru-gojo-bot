@@ -180,6 +180,10 @@ function jidToNumber(jid){
   const base = stripUserScope(String(jid || ''))
     .replace(/:\d+@/, '@')
     .replace(/@.+$/, '')
+  if (base.startsWith('259')) {
+    return 'LID-' + base.slice(-4)
+  }
+  if (base === BOT_OWNER_LID) return BOT_OWNER_NUMBER
   return base
 }
 function userDbId(jid, chatId, isGroup){
@@ -251,11 +255,17 @@ const CLASSES = [
 ]
 function findClass(query){ const q = normalizeJobName(query); return CLASSES.find(c => c.id === q || normalizeJobName(c.name) === q) }
 function formatProfessionList(){ return PROFESSIONS.map(p=>`• ${p.name} — ${p.description} (salário ${p.salary})`).join('\n') }
-function parseCommandText(text){ const trimmed = text.trim(); const prefix = trimmed[0]; if (prefix !== '.' && prefix !== '!') return null; return trimmed.slice(1).trim().split(/\s+/) }
+function parseCommandText(text){ 
+  const trimmed = text.trim(); 
+  if (trimmed === '.' || trimmed === '!') return null;
+  const prefix = trimmed[0]; 
+  if (prefix !== '.' && prefix !== '!') return null; 
+  return trimmed.slice(1).trim().split(/\s+/) 
+}
 
 const BOT_PLAN_MONTHLY_PRICE = 15
-const BOT_OWNER_NUMBER = (process.env.BOT_OWNER_NUMBER || '5581986010094').replace(/\D/g,'')
-const BOT_OWNER_LID = (process.env.BOT_OWNER_LID || '259184213934087').replace(/\D/g,'')
+const BOT_OWNER_NUMBER = (process.env.BOT_OWNER_NUMBER || '').replace(/\D/g,'')
+const BOT_OWNER_LID = (process.env.BOT_OWNER_LID || '').replace(/\D/g,'')
 const BOT_LICENSE_CONTACT = (process.env.BOT_LICENSE_CONTACT || BOT_OWNER_NUMBER).replace(/\D/g,'')
 const BOT_LICENSE_CONTACT_LINK = BOT_LICENSE_CONTACT ? `https://wa.me/${BOT_LICENSE_CONTACT}` : ''
 let ACTIVE_OWNER_NUMBER = ''
@@ -263,10 +273,10 @@ const OWNER_NUMBER_ALIASES = [
   BOT_OWNER_NUMBER,
   BOT_OWNER_NUMBER.replace(/^55/, ''),
   BOT_OWNER_LID,
-  '5581986010094',
-  '81986010094'
 ]
-function jidDigits(jid){ return jidToNumber(jid).replace(/\D/g,'') }
+function jidDigits(jid){ 
+  return jidToNumber(jid).replace(/\D/g,'') 
+}
 function sameNumber(a, b){
   const da = String(a || '').replace(/\D/g, '')
   const db = String(b || '').replace(/\D/g, '')
@@ -337,6 +347,10 @@ async function bootstrapUserFromLegacy(legacyJid, chatId=''){
   const current = db_mod.data.users[scopedUserId]
 
   if (current && !isDefaultUserRecord(current)) return false
+
+  // Se for grupo, não queremos herdar o progresso (moedas, level) de outros lugares,
+  // pois o usuário quer bancos de dados diferentes por grupo.
+  if (chatId) return false 
 
   const legacyEntries = Object.entries(db_mod.data.users).filter(([key]) => {
     if (key === scopedUserId) return false
@@ -576,6 +590,11 @@ async function getClanRecord(clanId){ await db_mod.read(); db_mod.data.clans ||=
 async function saveClans(){ await db_mod.write() }
 async function playAudioIfExists(chatId, filename){
   try {
+    if (chatId.endsWith('@g.us')){
+      const settings = await getGroupSettings(chatId)
+      if (settings && settings.audiosEnabled === false) return
+    }
+
     const candidates = [
       path.join('./assets/voice', filename),
       path.join('./assets', filename)
@@ -1079,6 +1098,11 @@ GOJO — MENU RPG
 ㅤ ╰ .trair
 ㅤ ╰ .adotar
 
+🎲 ㅤ MECÂNICAS RPG:
+
+ㅤ ╰ .dado <faces> | .d4 | .d20 | .d100
+ㅤ ╰ .moeda (Somente Admins)
+
 ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 🌌 VAZIO INFINITO: NÍVEL MÁXIMO
 ◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤`
@@ -1161,10 +1185,11 @@ GOJO — BRINCADEIRAS
 
 🎲 ㅤ SORTE & JOGOS:
 
-ㅤ ╰ .dado 🎲 ㅤ ╰ .moeda 🪙
-ㅤ ╰ .adivinha 🔢 ╰ .sorteio ⚖️
-ㅤ ╰ .bola8 🔮 ㅤ ╰ .quem ❓
-ㅤ ╰ .forca ㅤ ╰ .letra <letra>
+ㅤ ╰ .dado <faces> | .d20 | .d100 🎲
+ㅤ ╰ .moeda 🪙 ㅤ ╰ .adivinha 🔢
+ㅤ ╰ .sorteio ⚖️ ㅤ ╰ .bola8 🔮
+ㅤ ╰ .quem ❓ ㅤ ╰ .forca
+ㅤ ╰ .letra <letra> (Somente Admins rolam dados/moedas)
 
 🎭 ㅤ ZUEIRA & REAÇÃO:
 
@@ -1506,7 +1531,10 @@ async function audioFromYouTubeSearch(query, chatId){
   try {
     await runYtDlpWithFallback(`ytsearch1:${q}`, {
       format: 'bestaudio[ext=m4a]/bestaudio/best',
-      output: outTpl
+      output: outTpl,
+      noPlaylist: true,
+      extractAudio: true,
+      audioFormat: 'mp3'
     })
     produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_audio_${uid}.`))
     const outPath = produced.find(name => /\.mp3$/i.test(name)) || produced[0]
@@ -1613,6 +1641,14 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   if (!msg?.message) return
   const chatId = msg.key.remoteJid
   const sender = resolveSenderJid(msg)
+  const pushName = msg.pushName || ''
+  if (pushName){
+    const u = await getUser(sender)
+    if (u.name !== pushName || !u.name){
+      u.name = pushName
+      await saveDB()
+    }
+  }
   const senderJid = sender || toNumberJid(jidDigits(sender))
   const isGroup = chatId.endsWith('@g.us')
   const scopedUserId = (jid) => userDbId(jid, chatId, isGroup)
@@ -1657,7 +1693,7 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
 
   const ownerContext = isOwnerContext(sender, chatId, msg)
   const senderDigits = jidDigits(sender)
-  const isOwnerNumber = senderDigits.includes('581986010094') || senderDigits.includes('259184213934087')
+  const isOwnerNumber = senderDigits === BOT_OWNER_NUMBER || senderDigits === BOT_OWNER_LID || senderDigits === BOT_OWNER_NUMBER.replace(/^55/, '')
   const license = await getBotLicenseStatus(sender, [chatId, sock?.user?.id])
   let groupSponsored = false
   if (isGroup && !license.active && !ownerContext && !isOwnerNumber){
@@ -1672,7 +1708,7 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
       try {
         const meta = await sock.groupMetadata(chatId)
         const admins = new Set(meta.participants.filter(p=>p.admin).map(p=>p.id))
-        const isPrivileged = admins.has(sender) || ownerContext
+        const isPrivileged = admins.has(sender) || ownerContext || isOwnerNumber
         if (!isPrivileged){
           try { await sock.sendMessage(chatId, { delete: msg.key }) } catch {}
           await sock.sendMessage(chatId, { text:`🔗 Link bloqueado. @${jidToNumber(senderJid)}, links não são permitidos neste grupo.`, mentions:[senderJid] }, { quoted: msg })
@@ -1900,7 +1936,7 @@ SATORU GOJO — ACESSO ATIVO
   }
 
   const freeCommands = new Set(['menu','ajuda','planobot','licenca','ativar','menudono','perfil','debugdono','classe'])
-  if (!ownerContext && !license.active && !groupSponsored && !freeCommands.has(cmd)){
+  if (!ownerContext && !isOwnerNumber && !license.active && !groupSponsored && !freeCommands.has(cmd)){
     await sendBlockedReactionImage(chatId, msg)
     await sock.sendMessage(chatId, { text:`🛑 ㅤ   ▬▬▬ㅤ
 SATORU GOJO — BLOQUEADO
@@ -1918,10 +1954,10 @@ SATORU GOJO — BLOQUEADO
 ㅤ ╰ Valor: R$ 15,00 / mês
 ㅤ ╰ Status: Inativo ❌
 
-💳 ㅤ CONTATO PARA LICENÇA:
+CRED ㅤ CONTATO PARA LICENÇA:
 
 ㅤ 
-ㅤ ╰ Link: https://wa.me/5581986010094
+ㅤ ╰ Link: ${BOT_LICENSE_CONTACT_LINK}
 
 ⚙️ ㅤ REGRAS DE USO:
 
@@ -1946,7 +1982,7 @@ SATORU GOJO — BLOQUEADO
     const catNorm = catInput.toLowerCase()
     const cat = ['adme','admin','adm'].includes(catNorm) ? 'dono' : catInput
     if (cat){
-      if (['dono','owner'].includes(cat.toLowerCase()) && !ownerContext){
+      if (['dono','owner'].includes(cat.toLowerCase()) && !ownerContext && !isOwnerNumber){
         await sock.sendMessage(chatId, { text:'Apenas o dono do bot pode ver esse menu.' }, { quoted: msg })
         await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3')
         return
@@ -1963,7 +1999,7 @@ SATORU GOJO — BLOQUEADO
     return
   }
   if (cmd==='menudono'){
-    if (!ownerContext){
+    if (!ownerContext && !isOwnerNumber){
       await sock.sendMessage(chatId, { text:'Apenas o dono do bot pode ver esse menu.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3')
       return
@@ -1974,7 +2010,7 @@ SATORU GOJO — BLOQUEADO
   }
   if (cmd==='ajuda'){
     const cat = arg[0] || 'ajuda'
-    if (['dono','owner'].includes(cat.toLowerCase()) && !ownerContext){
+    if (['dono','owner'].includes(cat.toLowerCase()) && !ownerContext && !isOwnerNumber){
       await sock.sendMessage(chatId, { text:'Apenas o dono do bot pode ver esse menu.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3')
       return
@@ -3378,7 +3414,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender) && !ownerContext){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar este comando.' }, { quoted: msg }); return }
+    if (!admins.includes(sender) && !ownerContext && !isOwnerNumber){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar este comando.' }, { quoted: msg }); return }
     const target = getFirstMentionedJid(msg, arg)
     if (!target){ await sock.sendMessage(chatId, { text:`Use: .${cmd} @user` }, { quoted: msg }); return }
     const targetRaw = jidToNumber(target)
@@ -3394,7 +3430,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender) && !ownerContext){ await sock.sendMessage(chatId, { text:'Apenas administradores podem banir.' }, { quoted: msg }); return }
+    if (!admins.includes(sender) && !ownerContext && !isOwnerNumber){ await sock.sendMessage(chatId, { text:'Apenas administradores podem banir.' }, { quoted: msg }); return }
     const mentioned = getFirstMentionedJid(msg, arg)
     if (!mentioned){ await sock.sendMessage(chatId, { text:'Use: .ban @user' }, { quoted: msg }); return }
     await sock.groupParticipantsUpdate(chatId, [mentioned], 'remove')
@@ -3406,7 +3442,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender) && !ownerContext){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar .banlink.' }, { quoted: msg }); return }
+    if (!admins.includes(sender) && !ownerContext && !isOwnerNumber){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar .banlink.' }, { quoted: msg }); return }
     const mode = (arg[0] || 'status').toLowerCase()
     const settings = await getGroupSettings(chatId)
     if (['on','ativar','1'].includes(mode)){
@@ -3425,7 +3461,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender) && !ownerContext){ await sock.sendMessage(chatId, { text:'Apenas administradores podem aplicar advertência.' }, { quoted: msg }); return }
+    if (!admins.includes(sender) && !ownerContext && !isOwnerNumber){ await sock.sendMessage(chatId, { text:'Apenas administradores podem aplicar advertência.' }, { quoted: msg }); return }
     const target = getFirstMentionedJid(msg, arg)
     if (!target){ await sock.sendMessage(chatId, { text:'Use: .advertencia @user [motivo]' }, { quoted: msg }); return }
     const targetRaw = jidToNumber(target)
@@ -3459,7 +3495,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Somente em grupo.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = new Set(meta.participants.filter(p=>p.admin).map(p=>p.id))
-    if (!admins.has(sender) && !ownerContext){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar .banghosts.' }, { quoted: msg }); return }
+    if (!admins.has(sender) && !ownerContext && !isOwnerNumber){ await sock.sendMessage(chatId, { text:'Apenas administradores podem usar .banghosts.' }, { quoted: msg }); return }
 
     const limitMs = 30 * 24 * 60 * 60 * 1000
     const cutoff = Date.now() - limitMs
@@ -3489,7 +3525,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Esse recurso é para grupos.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender)){
+    if (!admins.includes(sender) && !ownerContext && !isOwnerNumber){
       await sock.sendMessage(chatId, { text:'Apenas administradores podem usar .plano.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3')
       return
@@ -3509,7 +3545,7 @@ simplesmente o mais forte.” — Satoru 🤞
     if (!isGroup){ await sock.sendMessage(chatId, { text:'Use apenas em grupos.' }, { quoted: msg }); return }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
-    if (!admins.includes(sender)){ await sock.sendMessage(chatId, { text:'Somente admin pode configurar.' }, { quoted: msg }); return }
+    if (!admins.includes(sender) && !ownerContext && !isOwnerNumber){ await sock.sendMessage(chatId, { text:'Somente admin pode configurar.' }, { quoted: msg }); return }
     if (!groupSettings.premium && !ownerContext && !isOwnerNumber){ await sock.sendMessage(chatId, { text:'Esse recurso exige plano premium. Ative com .plano ativar.' }, { quoted: msg }); return }
     const type = cmd==='setwelcome' ? 'welcome' : 'bye'
     const textValue = arg.join(' ').trim() || ''
@@ -3530,13 +3566,63 @@ simplesmente o mais forte.” — Satoru 🤞
 
   if (cmd==='rankgay'){ await sock.sendMessage(chatId, { text:'Não vou criar comandos que avaliem alguém pela orientação sexual. Use `.rank`, `.rankbanco`, `.rankprof` ou as brincadeiras `.rankpau` / `.rankgostosos`.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
 
-  if (cmd==='dado'){
-    const n = Math.floor(Math.random() * 6) + 1
-    await sock.sendMessage(chatId, { text:`🎲 Dado: ${n}` }, { quoted: msg })
+  if (cmd==='audios'){
+    if (!isGroup){ await sock.sendMessage(chatId, { text:'Use esse comando em grupo.' }, { quoted: msg }); return }
+    const meta = await sock.groupMetadata(chatId)
+    const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
+    if (!admins.includes(sender) && !ownerContext && !isOwnerNumber){
+      await sock.sendMessage(chatId, { text:'Apenas administradores podem configurar audios.' }, { quoted: msg })
+      return
+    }
+    const mode = (arg[0]||'').toLowerCase()
+    const settings = await getGroupSettings(chatId)
+    if (mode === 'on' || mode === 'ligar'){
+      settings.audiosEnabled = true
+      await updateGroupSettings(chatId, settings)
+      await sock.sendMessage(chatId, { text:'✅ Audios do Satoru ativados neste grupo.' }, { quoted: msg })
+    } else if (mode === 'off' || mode === 'desligar'){
+      settings.audiosEnabled = false
+      await updateGroupSettings(chatId, settings)
+      await sock.sendMessage(chatId, { text:'❌ Audios do Satoru desativados neste grupo.' }, { quoted: msg })
+    } else {
+      await sock.sendMessage(chatId, { text:'Use: .audios on ou .audios off' }, { quoted: msg })
+    }
+    return
+  }
+
+  if (cmd==='dado' || cmd === 'd' || ['d4','d6','d8','d10','d12','d20','d100'].includes(cmd)){
+    if (isGroup){
+      const meta = await sock.groupMetadata(chatId)
+      const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
+      if (!admins.includes(sender) && !ownerContext && !isOwnerNumber){
+        await sock.sendMessage(chatId, { text:'Apenas administradores podem rolar dados de RPG.' }, { quoted: msg })
+        return
+      }
+    }
+
+    let type;
+    if (['d4','d6','d8','d10','d12','d20','d100'].includes(cmd)) {
+      type = parseInt(cmd.slice(1), 10);
+    } else {
+      type = parseInt(arg[0] || '6', 10);
+    }
+
+    const allowed = [4, 6, 8, 10, 12, 20, 100]
+    const sides = allowed.includes(type) ? type : 6
+    const n = Math.floor(Math.random() * sides) + 1
+    await sock.sendMessage(chatId, { text:`🎲 Rolagem (d${sides}): ${n}` }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
   if (cmd==='moeda'){
+    if (isGroup){
+      const meta = await sock.groupMetadata(chatId)
+      const admins = meta.participants.filter(p=>p.admin).map(p=>p.id)
+      if (!admins.includes(sender) && !ownerContext && !isOwnerNumber){
+        await sock.sendMessage(chatId, { text:'Apenas administradores podem usar a moeda.' }, { quoted: msg })
+        return
+      }
+    }
     const lado = Math.random() < 0.5 ? 'Cara' : 'Coroa'
     await sock.sendMessage(chatId, { text:`🪙 Moeda: ${lado}` }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
@@ -3606,7 +3692,7 @@ simplesmente o mais forte.” — Satoru 🤞
     }
     const meta = await sock.groupMetadata(chatId)
     const admins = meta.participants.filter(p => p.admin).map(p => p.id)
-    if (!admins.includes(sender)){
+    if (!admins.includes(sender) && !ownerContext && !isOwnerNumber){
       await sock.sendMessage(chatId, { text:'Apenas administradores podem marcar todos.' }, { quoted: msg })
       await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3')
       return
@@ -3751,24 +3837,64 @@ Vassoura de Palha ($350): Aumenta ganhos em trabalhos braçais. (+2%)
     return
   }
   if (cmd==='buy'){
-  const first = (arg[0]||'').toLowerCase()
-  const legacyCategories = ['util','decor','casa','armas','armaduras','materiais','itens']
-  const id = legacyCategories.includes(first) ? parseInt(arg[1]||'0',10) : parseInt(arg[0]||'0',10)
-  const items = (await import('./config.js')).STORE.itens || []
-  const sel = items.find(i=>i.id===id)
-  if (!sel){ await sock.sendMessage(chatId, { text:'Use: .buy <id>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-    const u=await getUser(sender)
-    if ((u.coins||0) < sel.price){ await sock.sendMessage(chatId, { text:'Moedas insuficientes.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
-  u.coins -= sel.price; u.items=u.items||[]; u.items.push({ cat: 'itens', name: sel.name, boost: sel.boost||0, power: sel.power||0, defense: sel.defense||0 }); await saveDB()
-    await sock.sendMessage(chatId, { text:`Comprou ${sel.name} por ${sel.price}.` }, { quoted: msg })
+    const first = (arg[0]||'').toLowerCase()
+    const store = (await import('./config.js')).STORE
+    let sel = null
+    let category = 'itens'
+
+    // Try finding by ID across all categories
+    const id = parseInt(first, 10)
+    if (!isNaN(id)){
+      for (const cat in store){
+        const items = store[cat]
+        if (Array.isArray(items)){
+          const found = items.find(i => i.id === id)
+          if (found){
+            sel = found
+            category = cat
+            break
+          }
+        }
+      }
+    }
+
+    if (!sel){ await sock.sendMessage(chatId, { text:'Item não encontrado. Use o ID correto do catálogo.' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    const u = await getUser(sender)
+    if ((u.coins||0) < sel.price){ await sock.sendMessage(chatId, { text:`Você precisa de ${sel.price} coins, mas só tem ${u.coins||0}.` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
+    
+    u.coins -= sel.price
+    u.items = u.items || []
+    
+    // Add item with all its attributes
+    u.items.push({ 
+      cat: category, 
+      name: sel.name, 
+      boost: sel.boost || 0, 
+      power: sel.power || 0, 
+      defense: sel.defense || 0,
+      hpRestore: sel.hpRestore || 0,
+      special: sel.special || null
+    })
+    
+    await saveDB()
+    await sock.sendMessage(chatId, { text:`✅ Compra realizada: ${sel.name} por ${sel.price} coins.` }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
   if (cmd==='inventario'){
     const u=await getUser(sender)
-    const inv=(u.items||[]).map((x,i)=>`${i+1}. ${x.cat}:${x.name}${x.power?` (ATK ${x.power})`:''}${x.defense?` (DEF ${x.defense})`:''}`).join('\n') || 'Vazio.'
+    const inv=(u.items||[]).map((x,i)=>{
+      const stats = []
+      if (x.power) stats.push(`ATK ${x.power}`)
+      if (x.defense) stats.push(`DEF ${x.defense}`)
+      if (x.boost) stats.push(`Bônus ${Math.round(x.boost*100)}%`)
+      if (x.hpRestore) stats.push(`Cura ${Math.round(x.hpRestore*100)}%`)
+      if (x.special) stats.push(`Efeito: ${x.special}`)
+      const statStr = stats.length ? ` (${stats.join(' | ')})` : ''
+      return `${i+1}. ${x.name}${statStr}`
+    }).join('\n') || 'Vazio.'
     const materials = formatMaterials(u.materials)
-    await sock.sendMessage(chatId, { text:`🎒 Inventário\n${inv}\n\n🪨 Materiais\n${materials}` }, { quoted: msg })
+    await sock.sendMessage(chatId, { text:`🎒 Inventário de ${u.name || 'Usuário'}\n\n${inv}\n\n🪨 Materiais\n${materials}` }, { quoted: msg })
     await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3')
     return
   }
@@ -3885,7 +4011,7 @@ SATORU GOJO — BLOQUEADO
       if (!trigger){ await sock.sendMessage(chatId, { text:'Use: .pcrmv <gatilho>' }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3'); return }
       const meta2 = await sock.groupMetadata(chatId)
       const admins2 = meta2.participants.filter(p=>p.admin).map(p=>p.id)
-      const isGroupAdmin = admins2.includes(sender)
+      const isGroupAdmin = admins2.includes(sender) || ownerContext || isOwnerNumber
       const r = await removeGroupCustom(chatId, sender, trigger, isGroupAdmin)
       if (!r.ok){ await sock.sendMessage(chatId, { text:`Falhou: ${r.reason}` }, { quoted: msg }); await playAudioIfExists(chatId, '(3) Erro de Execução de Comandos.mp3') }
       else { await sock.sendMessage(chatId, { text:`Comando .${trigger} removido.` }, { quoted: msg }); await playAudioIfExists(chatId, '(2) Execução de Comandos.mp3') }

@@ -216,7 +216,7 @@ export async function getUser(id){
     cooldowns: {},
     status: '',
     createdAt: null,
-    lastActive: Date.now(),
+    lastActive: 0,
     hp: 100,
     maxHp: 100,
     materials: { pedra:0, erva:0, carne:0, minerio:0 },

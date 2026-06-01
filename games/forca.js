@@ -3,7 +3,7 @@ import { JSONFile } from 'lowdb/node'
 
 const DB_FILE = process.env.DB_FILE || 'db.json'
 const adapter = new JSONFile(DB_FILE)
-const db = new Low(adapter, { users:{}, games:{} })
+const db = new Low(adapter, {})
 
 const MAX_LIVES = 10
 const WORDS = [
