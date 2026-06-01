@@ -1664,23 +1664,31 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
     }
     return exactId
   }
-  const getUser = async (jid) => dbGetUser(await resolveUserRecordId(jid))
-  const setUser = async (jid, obj) => dbSetUser(await resolveUserRecordId(jid), obj)
-  const resolveMarriageStateId = async (jid) => stripUserScope(await resolveUserRecordId(jid))
-  const getMarriagePartners = async (jid) => {
-    if (!isGroup) return []
-    return getGroupMarriagePartners(chatId, await resolveMarriageStateId(jid))
+
+  async function getUser(jid) {
+    return dbGetUser(await resolveUserRecordId(jid));
   }
-  const setMarriagePartners = async (jid, partners = []) => {
-    if (!isGroup) return
-    const ownerId = await resolveMarriageStateId(jid)
-    const partnerIds = uniqueJidsByNumber(await Promise.all((partners || []).map(resolveMarriageStateId)))
-    await setGroupMarriagePartners(chatId, ownerId, partnerIds)
+  async function setUser(jid, obj) {
+    return dbSetUser(await resolveUserRecordId(jid), obj);
   }
-  const clearMarriagePartners = async (jid) => {
-    if (!isGroup) return
-    await clearGroupMarriage(chatId, await resolveMarriageStateId(jid))
+  async function resolveMarriageStateId(jid) {
+    return stripUserScope(await resolveUserRecordId(jid));
   }
+  async function getMarriagePartners(jid) {
+    if (!isGroup) return [];
+    return getGroupMarriagePartners(chatId, await resolveMarriageStateId(jid));
+  }
+  async function setMarriagePartners(jid, partners = []) {
+    if (!isGroup) return;
+    const ownerId = await resolveMarriageStateId(jid);
+    const partnerIds = uniqueJidsByNumber(await Promise.all((partners || []).map(resolveMarriageStateId)));
+    await setGroupMarriagePartners(chatId, ownerId, partnerIds);
+  }
+  async function clearMarriagePartners(jid) {
+    if (!isGroup) return;
+    await clearGroupMarriage(chatId, await resolveMarriageStateId(jid));
+  }
+
   if (isGroup) await bootstrapUserFromLegacy(sender, chatId)
   const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
   await maybeUpdateLastActive(sender, getUser)
