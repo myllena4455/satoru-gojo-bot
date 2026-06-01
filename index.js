@@ -740,6 +740,33 @@ async function loadDownloaderConfig(){
 
 async function httpGetBuffer(url, headers={}){ const res=await fetch(url,{headers}); if(!res.ok) throw new Error('HTTP '+res.status); const ab=await res.arrayBuffer(); return Buffer.from(new Uint8Array(ab)) }
 
+function getYouTubeID(url) {
+  const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+  const match = String(url).match(regex);
+  return match ? match[1] : null;
+}
+
+const invidiousInstances = [
+  'https://invidious.nerdvpn.de',
+  'https://yewtu.be',
+  'https://inv.tux.rs',
+  'https://invidious.sethforprivacy.com',
+  'https://invidious.flokinet.to'
+]
+
+async function getInvidiousBuffer(videoID, type) {
+  for (const instance of invidiousInstances) {
+    try {
+      const url = `${instance}/latest_version?id=${videoID}&itype=${type}`
+      return await httpGetBuffer(url)
+    } catch (err) {
+      console.error(`Falha na instância Invidious ${instance}:`, err.message)
+      continue
+    }
+  }
+  throw new Error('Todas as instâncias do Invidious falharam ou estão congestionadas no momento.')
+}
+
 async function httpGetText(url, headers={}){ const res=await fetch(url,{headers}); if(!res.ok) throw new Error('HTTP '+res.status); return await res.text() }
 
 function buildPinterestRssUrl(input){
@@ -1527,30 +1554,39 @@ async function runYtDlpWithFallback(target, options = {}){
   }
 }
 async function audioFromYouTube(url, chatId){
-  if (!/youtube\.com|youtu\.be/.test(String(url||''))){
+  const videoID = getYouTubeID(url)
+  if (!videoID){
     await sock.sendMessage(chatId, { text:'Link inválido do YouTube.' })
     return
   }
-  const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
-  const outTpl = `./yt_audio_${uid}.%(ext)s`
-  let produced = []
+
   try {
-    await runYtDlpWithFallback(url, {
-      format: 'bestaudio[ext=m4a]/bestaudio/best',
-      output: outTpl
-    })
-    produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_audio_${uid}.`))
-    const outPath = produced.find(name => /\.mp3$/i.test(name)) || produced[0]
-    if (!outPath) throw new Error('Arquivo de áudio não foi gerado.')
-    const audio = fs.readFileSync(path.join('.', outPath))
-    const mimetype = /\.m4a$/i.test(outPath) ? 'audio/mp4' : 'audio/mpeg'
-    await sock.sendMessage(chatId, { audio, mimetype, ptt:false })
-  } catch (err) {
-    await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de áudio do YouTube (yt-dlp)') })
-  } finally {
-    for (const file of produced){
-      const fp = path.join('.', file)
-      if (fs.existsSync(fp)) fs.unlinkSync(fp)
+    // Tenta via Invidious primeiro (evita bot detection)
+    const audio = await getInvidiousBuffer(videoID, 'audio')
+    await sock.sendMessage(chatId, { audio, mimetype:'audio/mpeg', ptt:false })
+  } catch (errInvidious) {
+    console.log('Invidious falhou, tentando fallback com yt-dlp...')
+    const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
+    const outTpl = `./yt_audio_${uid}.%(ext)s`
+    let produced = []
+    try {
+      await runYtDlpWithFallback(url, {
+        format: 'bestaudio[ext=m4a]/bestaudio/best',
+        output: outTpl
+      })
+      produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_audio_${uid}.`))
+      const outPath = produced.find(name => /\.mp3$/i.test(name)) || produced[0]
+      if (!outPath) throw new Error('Arquivo de áudio não foi gerado.')
+      const audio = fs.readFileSync(path.join('.', outPath))
+      const mimetype = /\.m4a$/i.test(outPath) ? 'audio/mp4' : 'audio/mpeg'
+      await sock.sendMessage(chatId, { audio, mimetype, ptt:false })
+    } catch (err) {
+      await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de áudio do YouTube (yt-dlp)') })
+    } finally {
+      for (const file of produced){
+        const fp = path.join('.', file)
+        if (fs.existsSync(fp)) fs.unlinkSync(fp)
+      }
     }
   }
 }
@@ -1606,30 +1642,39 @@ async function audioFromGeneric(link, chatId){
   } catch(err){ await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de áudio') }) }
 }
 async function videoFromYouTube(url, chatId){
-  if (!/youtube\.com|youtu\.be/.test(String(url||''))){
+  const videoID = getYouTubeID(url)
+  if (!videoID){
     await sock.sendMessage(chatId, { text:'Link de YouTube inválido.' })
     return
   }
-  const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
-  const outTpl = `./yt_video_${uid}.%(ext)s`
-  let produced = []
+
   try {
-    await runYtDlpWithFallback(url, {
-      format: 'best[ext=mp4]/best',
-      output: outTpl
-    })
-    produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_video_${uid}.`))
-    const outPath = produced.find(name => /\.mp4$/i.test(name)) || produced[0]
-    if (!outPath) throw new Error('Arquivo de vídeo não foi gerado.')
-    const vid = fs.readFileSync(path.join('.', outPath))
-    const mimetype = /\.webm$/i.test(outPath) ? 'video/webm' : 'video/mp4'
-    await sock.sendMessage(chatId, { video: vid, mimetype, caption:'🎬 Vídeo baixado com sucesso!' })
-  } catch (err) {
-    await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de vídeo do YouTube (yt-dlp)') })
-  } finally {
-    for (const file of produced){
-      const fp = path.join('.', file)
-      if (fs.existsSync(fp)) fs.unlinkSync(fp)
+    // Tenta via Invidious primeiro
+    const vid = await getInvidiousBuffer(videoID, 'video')
+    await sock.sendMessage(chatId, { video: vid, mimetype:'video/mp4', caption:'🎬 Vídeo baixado com sucesso!' })
+  } catch (errInvidious) {
+    console.log('Invidious falhou, tentando fallback com yt-dlp...')
+    const uid = `${Date.now()}_${Math.floor(Math.random()*1e6)}`
+    const outTpl = `./yt_video_${uid}.%(ext)s`
+    let produced = []
+    try {
+      await runYtDlpWithFallback(url, {
+        format: 'best[ext=mp4]/best',
+        output: outTpl
+      })
+      produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_video_${uid}.`))
+      const outPath = produced.find(name => /\.mp4$/i.test(name)) || produced[0]
+      if (!outPath) throw new Error('Arquivo de vídeo não foi gerado.')
+      const vid = fs.readFileSync(path.join('.', outPath))
+      const mimetype = /\.webm$/i.test(outPath) ? 'video/webm' : 'video/mp4'
+      await sock.sendMessage(chatId, { video: vid, mimetype, caption:'🎬 Vídeo baixado com sucesso!' })
+    } catch (err) {
+      await sock.sendMessage(chatId, { text: downloadErrorText(err, 'download de vídeo do YouTube (yt-dlp)') })
+    } finally {
+      for (const file of produced){
+        const fp = path.join('.', file)
+        if (fs.existsSync(fp)) fs.unlinkSync(fp)
+      }
     }
   }
 }
@@ -2030,16 +2075,18 @@ CRED ㅤ CONTATO PARA LICENÇA:
 
   // Menu / Ajuda
   if (cmd==='menu'){
-    const catInput = arg[0] || ''
-    const catNorm = catInput.toLowerCase()
-    const cat = ['adme','admin','adm'].includes(catNorm) ? 'dono' : catInput
+    const catInput = (arg[0] || '').toLowerCase()
+    
+    // Ajuste para não redirecionar "adm" para "dono"
+    const cat = (catInput === 'adme') ? 'dono' : catInput
+
     if (cat){
-      if (['dono','owner'].includes(cat.toLowerCase()) && !ownerContext && !isOwnerNumber){
+      if (['dono','owner'].includes(cat) && !ownerContext && !isOwnerNumber){
         await sock.sendMessage(chatId, { text:'Apenas o dono do bot pode ver esse menu.' }, { quoted: msg })
         await playAudioIfExists(chatId, '(4) Tentativa de Execução de Comandos Vips.mp3')
         return
       }
-      const isPremiumMenu = ['premio','premium'].includes(cat.toLowerCase())
+      const isPremiumMenu = ['premio','premium'].includes(cat)
       const text = isPremiumMenu
         ? await menuPremiumWithCustomCommands(chatId, isGroup)
         : menuCategoryText(cat)
