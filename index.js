@@ -747,11 +747,11 @@ function getYouTubeID(url) {
 }
 
 const invidiousInstances = [
+  'https://invidious.perennialte.ch',
+  'https://inv.us.projectsegfau.lt',
   'https://invidious.nerdvpn.de',
   'https://yewtu.be',
-  'https://inv.tux.rs',
-  'https://invidious.sethforprivacy.com',
-  'https://invidious.flokinet.to'
+  'https://invidious.no-logs.com'
 ]
 
 async function getInvidiousBuffer(videoID, type) {
