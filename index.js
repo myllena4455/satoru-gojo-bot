@@ -1651,7 +1651,11 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   }
   const senderJid = sender || toNumberJid(jidDigits(sender))
   const isGroup = chatId.endsWith('@g.us')
-  const scopedUserId = (jid) => userDbId(jid, chatId, isGroup)
+
+  function scopedUserId(jid) {
+    return userDbId(jid, chatId, isGroup);
+  }
+
   async function resolveUserRecordId(jid) {
     await db_mod.read()
     db_mod.data.users ||= {}
