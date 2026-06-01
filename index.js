@@ -1643,36 +1643,39 @@ sock.ev.on('messages.upsert', async ({ messages, type })=>{
   const sender = resolveSenderJid(msg)
   const pushName = msg.pushName || ''
 
-  const senderJid = sender || toNumberJid(jidDigits(sender))
-  const isGroup = chatId.endsWith('@g.us')
+  const senderJid = sender || (sender ? toNumberJid(jidDigits(sender)) : '')
+  const isGroup = chatId ? chatId.endsWith('@g.us') : false
 
-  function scopedUserId(jid) {
-    return userDbId(jid, chatId, isGroup);
+  async function getUser(jid) {
+    if (!jid) return {};
+    const recordId = await resolveUserRecordId(jid);
+    return dbGetUser(recordId);
   }
 
   async function resolveUserRecordId(jid) {
     await db_mod.read()
     db_mod.data.users ||= {}
-    const exactId = scopedUserId(jid)
+    
+    // Inline scoped ID logic to avoid hoisting issues with parameters
+    const exactId = userDbId(jid, chatId, isGroup);
+    
     if (db_mod.data.users[exactId]) return exactId
     const aliasIds = await listUserAliasJids(jid, isGroup ? chatId : '')
     for (const aliasId of aliasIds){
-      const scopedAliasId = scopedUserId(aliasId)
+      const scopedAliasId = userDbId(aliasId, chatId, isGroup);
       if (db_mod.data.users[scopedAliasId]) return scopedAliasId
     }
     return exactId
   }
 
-  async function getUser(jid) {
-    return dbGetUser(await resolveUserRecordId(jid));
-  }
   async function setUser(jid, obj) {
-    return dbSetUser(await resolveUserRecordId(jid), obj);
+    const recordId = await resolveUserRecordId(jid);
+    return dbSetUser(recordId, obj);
   }
 
-  if (pushName){
+  if (pushName && sender){
     const u = await getUser(sender)
-    if (u.name !== pushName || !u.name){
+    if (u && (u.name !== pushName || !u.name)){
       u.name = pushName
       await saveDB()
     }
