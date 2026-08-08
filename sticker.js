@@ -31,17 +31,15 @@ export async function makeSticker(buffer, author='Satoru', pack='Satoru Pack', o
       fs.writeFileSync(tmpIn, buffer)
       await new Promise((res, rej)=>{
         ffmpeg(tmpIn)
-          .duration(6)
           .outputOptions([
             '-vcodec', 'libwebp',
             '-lossless', '0',
-            '-qscale', '75',
+            '-q:v', '75',
             '-preset', 'default',
             '-loop', '0',
             '-an',
-            '-vsync', '0',
-            '-s', '512:512',
-            '-r', '15',
+            '-vf', 'scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:-1:-1:color=white,fps=15',
+            '-fps_mode', 'cfr',
             '-t', '6'
           ])
           .toFormat('webp')
