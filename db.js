@@ -262,11 +262,13 @@ export async function getGroupSettings(groupId){
     planPrice: 5000,
     mutedUsers: [],
     banLinks: false,
+    botEnabled: true,
     warnings: {}
   }
   const g = db.data.groups[groupId]
   g.mutedUsers ||= []
   if (typeof g.banLinks !== 'boolean') g.banLinks = false
+  if (typeof g.botEnabled !== 'boolean') g.botEnabled = true
   g.warnings ||= {}
   return db.data.groups[groupId]
 }
