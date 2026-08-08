@@ -1696,15 +1696,17 @@ async function audioFromYouTubeSearch(query, chatId){
     await runYtDlpWithFallback(`ytsearch1:${q}`, {
       format: 'bestaudio[ext=m4a]/bestaudio/best',
       output: outTpl,
-      noPlaylist: true,
-      extractAudio: true,
-      audioFormat: 'mp3'
+      noPlaylist: true
     })
     produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_audio_${uid}.`))
-    const outPath = produced.find(name => /\.mp3$/i.test(name)) || produced[0]
+    const outPath = produced.find(name => /\.(m4a|mp3|opus|ogg|webm|aac)$/i.test(name)) || produced[0]
     if (!outPath) throw new Error('Nenhum resultado retornou áudio.')
     const audio = fs.readFileSync(path.join('.', outPath))
-    const mimetype = /\.m4a$/i.test(outPath) ? 'audio/mp4' : 'audio/mpeg'
+    const mimetype = /\.(m4a|aac)$/i.test(outPath)
+      ? 'audio/mp4'
+      : /\.(webm|opus|ogg)$/i.test(outPath)
+        ? 'audio/ogg; codecs=opus'
+        : 'audio/mpeg'
     await sock.sendMessage(chatId, { audio, mimetype, ptt:false })
   } catch (err) {
     await sock.sendMessage(chatId, { text: downloadErrorText(err, 'busca de música no YouTube (yt-dlp)') })

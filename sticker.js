@@ -6,12 +6,27 @@ import os from 'os'
 import path from 'path'
 
 ffmpeg.setFfmpegPath(ffmpegStatic)
+function detectExtensionFromBuffer(buffer){
+  try{
+    const head = buffer.slice(0, 64)
+    const hexHead = head.toString('hex')
+    // GIF
+    if (hexHead.startsWith('47494638')) return '.gif'
+    // WEBP (RIFF....WEBP)
+    if (head.slice(0,4).toString() === 'RIFf'.replace('f','f') && head.slice(8,12).toString() === 'WEBP') return '.webp'
+    // MP4/MOV (ftyp present)
+    if (head.includes(Buffer.from('ftyp'))) return '.mp4'
+  }catch(e){}
+  return '.mp4'
+}
 
 export async function makeSticker(buffer, author='Satoru', pack='Satoru Pack', opts = {}){
   // If animated requested, try to convert input (gif/mp4) to animated webp via ffmpeg
   if (opts.animated){
-    const tmpIn = path.join(os.tmpdir(), `in_stk_${Date.now()}`)
+    const ext = detectExtensionFromBuffer(buffer)
+    const tmpIn = path.join(os.tmpdir(), `in_stk_${Date.now()}${ext}`)
     const tmpOut = path.join(os.tmpdir(), `out_stk_${Date.now()}.webp`)
+    let ffmpegStderr = ''
     try{
       fs.writeFileSync(tmpIn, buffer)
       await new Promise((res, rej)=>{
@@ -31,8 +46,9 @@ export async function makeSticker(buffer, author='Satoru', pack='Satoru Pack', o
           ])
           .toFormat('webp')
           .save(tmpOut)
+          .on('stderr', (line)=>{ ffmpegStderr += line + '\n' })
           .on('end', res)
-          .on('error', rej)
+          .on('error', (err)=> rej(new Error(err.message + '\n' + ffmpegStderr)))
       })
       const out = fs.readFileSync(tmpOut)
       return out
