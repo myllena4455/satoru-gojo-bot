@@ -1419,6 +1419,7 @@ GOJO — GUIA DE COMANDOS
 ╰ .pcadd/rmv ─ Cria/Deleta comandos ⚙️
 ╰ .plano ─ Ativa o Premium no grupo 💎
 ╰ .setwelcome/bye ─ Mensagens VIP 🖼️
+╰ .bot on/off ─ Liga/Desliga o bot no grupo 🔛
 
 ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 📧 SUPORTE: satoru.suport24hs@gmail.com
@@ -1443,6 +1444,7 @@ GOJO — ADMINISTRAÇÃO
 ㅤ ╰ .banlink on/off ─ Anti-link 🔗
 ㅤ ╰ .advertencia @user ─ Avisos ⚠️
 ㅤ ╰ .banghosts ─ Limpar inativos 👻
+   ╰ .bot on/off ─ Liga/Desliga o bot no grupo 🔛
    ╰ .audios on/off ─ Ativar/Desativar áudios do bot 🔊
 
 ⚙️ ㅤ CONFIGURAÇÕES:
@@ -1541,7 +1543,6 @@ async function sendMenu(chatId, quoted){
 🔵 .menu ajuda
 ⚪ .menu variado
 🔵 .menu dono
-⚪ .bot on/off
 🔵 .masmorra
 ⚪ .atualizacao
 🔵 .verificar
@@ -1560,12 +1561,19 @@ function getMenuImagePath(cat){
     rpg: './assets/menu rpg.jpg',
     premium: './assets/menu premium.jpeg',
     premio: './assets/menu premium.jpeg',
-    brincadeiras: './assets/menubrinca.jpeg',
-    ajuda: './assets/menu ajuda.jpeg',
-    variado: './assets/menu variado.jpeg',
-    variedades: './assets/menu variado.jpeg',
-    dono: './assets/menu dono.jpeg',
-    owner: './assets/menu dono.jpeg'
+    adm: './assets/menu adm.jpg',
+    admin: './assets/menu adm.jpg',
+    moderacao: './assets/menu adm.jpg',
+    brincadeiras: './assets/menubrinca.jpg',
+    brinca: './assets/menubrinca.jpg',
+    ajuda: './assets/menu ajuda.jpg',
+    variado: './assets/menu variado.jpg',
+    variedades: './assets/menu variado.jpg',
+    dono: './assets/menu dono.jpg',
+    owner: './assets/menu dono.jpg',
+    verificar: './assets/menu verificar.jpg',
+    checkcomandos: './assets/menu verificar.jpg',
+    masmorra: './assets/masmorra.jpg'
   }
   
   if (map[key] && fs.existsSync(map[key])) return map[key]
@@ -1664,7 +1672,9 @@ async function audioFromYouTube(url, chatId){
     let produced = []
     try {
       await runYtDlpWithFallback(url, {
-        format: 'bestaudio[ext=m4a]/bestaudio/best',
+        format: 'ba/ba*/bestaudio/best',
+        extractAudio: true,
+        audioFormat: 'mp3',
         output: outTpl
       })
       produced = fs.readdirSync('.').filter(name => name.startsWith(`yt_audio_${uid}.`))
@@ -1694,7 +1704,9 @@ async function audioFromYouTubeSearch(query, chatId){
   let produced = []
   try {
     await runYtDlpWithFallback(`ytsearch1:${q}`, {
-      format: 'bestaudio[ext=m4a]/bestaudio/best',
+      format: 'ba/ba*/bestaudio/best',
+      extractAudio: true,
+      audioFormat: 'mp3',
       output: outTpl,
       noPlaylist: true
     })
